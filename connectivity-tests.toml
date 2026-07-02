@@ -6,6 +6,14 @@
 #   - "cross_product":  generate all port x protocol combinations
 port_protocol_pairing = "one_to_one"
 
+# Kubernetes namespace where the generated server test manifests
+# (manifests/servers/*.yaml) are meant to be deployed. NOT embedded into the
+# manifests themselves -- deploy explicitly with
+# `kubectl apply -f <file> -n <namespace>` for clarity. This value is only
+# used by src/generate_server_manifests.py to print/document the suggested
+# deploy command.
+namespace = "default"
+
 # Configuration for the probe engine (src/run_probe.py), used only if invoked
 # with --config connectivity-tests.toml (otherwise it uses these same values as
 # an embedded default, so it can keep running standalone).

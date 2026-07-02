@@ -60,7 +60,7 @@ Prerequisites in the other environments:
 
 ```text
 inputs/                Source CSVs + generated spec (readable YAML + JSON for the runner)
-connectivity-tests.toml  Generator config (port<->protocol pairing)
+connectivity-tests.toml  Generator config (port<->protocol pairing, target namespace)
 src/                    Scripts (generators on the dev PC, stdlib-only runner)
 manifests/              CLIENT (netshoot) and SERVER (per destination) K8s/Compose manifests
 standalone/             Self-contained script(s) to paste into the jumphost/VM
@@ -87,6 +87,11 @@ When ports and protocols have the same number of elements in a row
 or `cross_product`); it can also be forced for a single run with
 `--port-protocol-pairing cross_product`.
 
+`connectivity-tests.toml` also has a `namespace` key (`"default"` unless
+set) that `src/generate_server_manifests.py` uses to print/document the
+suggested `kubectl apply -n <namespace>` command for the server manifests
+(see section 3) — it is not embedded into the generated YAML.
+
 If you edit the YAML by hand (for example, to annotate or fix a case in
 `unresolved`), resync only the JSON without re-reading the CSVs:
 
@@ -105,8 +110,8 @@ depending on someone in Remote cloud domain doing something).
 ### On a K8s cluster
 
 ```bash
-kubectl apply -f manifests/netshoot-client-k8s.yaml   # deploy in the same namespace as the real app
-kubectl exec -it deploy/netshoot-client -- bash
+kubectl apply -f manifests/netshoot-client-k8s.yaml -n <namespace>   # Namespace that allows privileged containers
+kubectl exec -it deploy/netshoot-client -n <namespace> -- bash
 ```
 
 Inside the pod, with the tools already included in `nicolaka/netshoot:v0.15`:
@@ -144,15 +149,23 @@ the real app):
 
 ```bash
 uv run src/generate_server_manifests.py
-kubectl apply -f manifests/servers/<slug>-k8s.yaml
+kubectl apply -f manifests/servers/<slug>-k8s.yaml -n <namespace>
 ```
+
+`<namespace>` comes from the `namespace` key in `connectivity-tests.toml`
+(`"default"` unless set) — it is not baked into the manifest, deploy
+explicitly with `-n` for clarity; the generator also prints this same
+command with the configured namespace filled in, and each manifest's header
+comment repeats it.
 
 Each manifest deploys the same `nicolaka/netshoot:v0.15` container acting
 as a listener (`socat`) on the exact port of the real app, with its own `Service
-type: LoadBalancer`. **Do not deploy it together with the real app** on the same
-port. If a real `Service` already exists with that LoadBalancer IP already reserved and
-authorized in the firewall, edit that manifest's `Service` (or the real one's
-selector) to avoid creating a new, unauthorized IP — the generated YAML
+type: LoadBalancer` that requests the real app's IP explicitly (`spec.loadBalancerIP`
+plus the `metallb.io/loadBalancerIPs` annotation, for compatibility with both
+older and current MetalLB). **Do not deploy it together with the real app**
+on the same port. If a real `Service` already exists with that LoadBalancer IP
+already reserved and authorized in the firewall, edit that manifest's `Service`
+(or the real one's selector) to avoid a conflict — the generated YAML
 itself includes this warning as a comment.
 
 Once deployed, ask someone in Remote cloud domain to test with

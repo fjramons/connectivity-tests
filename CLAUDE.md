@@ -69,7 +69,11 @@ locally or transferred out-of-band via OneDrive Web, never committed.
 
 `connectivity-tests.toml` is read by both tiers for different purposes: the
 top-level `port_protocol_pairing` key configures `generate_test_spec.py`'s
-CSV expansion; the `[probe]` table configures `run_probe.py`'s UDP-ICMP-wait
+CSV expansion; the top-level `namespace` key (default `"default"`) is used by
+`generate_server_manifests.py` only to print/document the suggested
+`kubectl apply -n <namespace>` deploy command — it is never baked into the
+generated YAML's `metadata`, deploying with an explicit `-n` is preferred
+for clarity; the `[probe]` table configures `run_probe.py`'s UDP-ICMP-wait
 calibration (via `--config`, optional — falls back to embedded defaults if
 absent, so `run_probe.py` keeps working standalone).
 

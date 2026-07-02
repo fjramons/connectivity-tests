@@ -17,11 +17,13 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SPEC = ROOT / "inputs" / "connectivity-test-spec.json"
 DEFAULT_OUT_DIR = ROOT / "manifests" / "servers"
+DEFAULT_CONFIG = ROOT / "connectivity-tests.toml"
 
 MANIFEST_TEMPLATE = """\
 # TEMPORARY test server for {ip}:{port}/{protocol} ({description}).
@@ -32,7 +34,11 @@ MANIFEST_TEMPLATE = """\
 # If a real Service already exists with this LoadBalancer IP already reserved
 # and authorized in the firewall, adjust that Service's "selector" to
 # point to "app: {app_label}" instead of applying the Service below: a
-# new Service would get a DIFFERENT LoadBalancer IP from the one already authorized.
+# new Service would fail to reserve the same IP if it's already taken.
+#
+# Deploy into the target namespace (see "namespace" in
+# connectivity-tests.toml, currently "{namespace}"):
+#   kubectl apply -f manifests/servers/{filename} -n {namespace}
 #
 # Origin in the spec: {origin_summary}
 apiVersion: apps/v1
@@ -67,8 +73,13 @@ metadata:
   labels:
     app: {app_label}
     purpose: connectivity-test-server
+  annotations:
+    # Current MetalLB annotation (kept alongside spec.loadBalancerIP below
+    # for compatibility with older MetalLB releases / other LB controllers).
+    metallb.io/loadBalancerIPs: "{ip}"
 spec:
   type: LoadBalancer
+  loadBalancerIP: {ip}
   selector:
     app: {app_label}
   ports:
@@ -77,6 +88,14 @@ spec:
       targetPort: {port}
       protocol: {k8s_proto}
 """
+
+
+def load_config(config_path: Path) -> dict:
+    defaults = {"namespace": "default"}
+    if config_path.exists():
+        with config_path.open("rb") as f:
+            defaults.update(tomllib.load(f))
+    return defaults
 
 
 def load_tests(spec_path: Path) -> list[dict]:
@@ -111,7 +130,7 @@ def slugify(ip: str, port: int) -> str:
     return f"conntest-{ip.replace('.', '-')}-{port}"
 
 
-def render_manifest(entry: dict) -> str:
+def render_manifest(entry: dict, namespace: str) -> str:
     app_label = slugify(entry["ip"], entry["port"])
     protocol = entry["protocol"]
     return MANIFEST_TEMPLATE.format(
@@ -120,6 +139,8 @@ def render_manifest(entry: dict) -> str:
         protocol=protocol,
         description="; ".join(sorted(entry["descriptions"])),
         app_label=app_label,
+        filename=f"{app_label}-k8s.yaml",
+        namespace=namespace,
         socat_proto="UDP" if protocol == "udp" else "TCP",
         k8s_proto="UDP" if protocol == "udp" else "TCP",
         origin_summary=", ".join(entry["origins"]),
@@ -130,7 +151,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--spec", type=Path, default=DEFAULT_SPEC)
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
+    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     args = parser.parse_args()
+
+    config = load_config(args.config)
+    namespace = config.get("namespace", "default")
 
     tests = load_tests(args.spec)
     destinations = unique_destinations(tests)
@@ -139,10 +164,11 @@ def main() -> None:
     for key, entry in destinations.items():
         ip, port, protocol = key
         filename = f"{slugify(ip, port)}-k8s.yaml"
-        (args.out_dir / filename).write_text(render_manifest(entry), encoding="utf-8")
+        (args.out_dir / filename).write_text(render_manifest(entry, namespace), encoding="utf-8")
         print(f"Generated {args.out_dir / filename}")
 
     print(f"\nTotal: {len(destinations)} server manifests in {args.out_dir}")
+    print(f"Deploy each with: kubectl apply -f manifests/servers/<file> -n {namespace}")
 
 
 if __name__ == "__main__":
