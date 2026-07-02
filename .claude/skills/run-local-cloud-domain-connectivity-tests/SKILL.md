@@ -42,24 +42,28 @@ Before concluding the firewall is misconfigured, check the full verdict — a
 TCP/UDP `FAIL` alone doesn't confirm a firewall problem, because the
 Remote cloud domain service might not be deployed yet:
 
-- `PASS`: connectivity OK.
-- `PORT_REFUSED_NETWORK_OPEN`: immediate TCP refusal (RST) — case A, the
+`run_probe.py` prefixes each verdict (in the log and the terminal summary)
+with an icon: ✅ network/firewall confirmed open, ⚠️ weaker/inconclusive
+signal, ❌ inconclusive or blocked, ⏭️ skipped.
+
+- ✅ `PASS`: connectivity OK.
+- ✅ `PORT_REFUSED_NETWORK_OPEN`: immediate TCP refusal (RST) — case A, the
   strongest signal: the network/firewall let traffic through to that port, only
   the service is missing from Remote cloud domain. Not a firewall
   problem.
-- `PORT_CLOSED_HOST_REACHABLE`: TCP times out (no RST) but the host
+- ⚠️ `PORT_CLOSED_HOST_REACHABLE`: TCP times out (no RST) but the host
   responds to ping — case B, weaker signal than an explicit refusal:
   the service is probably not deployed yet, but it could also be
   a firewall that lets ICMP through and selectively filters that port.
-- `HOST_UNREACHABLE`: neither the port nor ping respond — case C,
+- ❌ `HOST_UNREACHABLE`: neither the port nor ping respond — case C,
   inconclusive: check the firewall rule or the route.
-- `UDP_REFUSED_NETWORK_OPEN`: an ICMP port-unreachable was received after
+- ✅ `UDP_REFUSED_NETWORK_OPEN`: an ICMP port-unreachable was received after
   sending — UDP equivalent of case A.
-- `UDP_SENT_*`: no ICMP observed, UDP doesn't confirm delivery — unlike
+- ⚠️/❌ `UDP_SENT_*`: no ICMP observed, UDP doesn't confirm delivery — unlike
   TCP, the absence of a refusal is NOT conclusive (many firewalls filter that
-  return ICMP); use the ping result as a reachability proxy, and
-  confirm with the receiving team if needed.
-- `SKIPPED_MANUAL_TEST_REQUIRED`: `remote_cloud_domain_to_local_cloud_domain` case, not attempted
+  return ICMP); use the ping result as a reachability proxy (⚠️ if it
+  responds, ❌ if it doesn't), and confirm with the receiving team if needed.
+- ⏭️ `SKIPPED_MANUAL_TEST_REQUIRED`: `remote_cloud_domain_to_local_cloud_domain` case, not attempted
   automatically — see section 3 of `README.md`.
 
 If several cases in a row give `HOST_UNREACHABLE` for the same destination, suspect

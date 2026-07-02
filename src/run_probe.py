@@ -42,6 +42,20 @@ DEFAULT_PROBE_CONFIG = {
     "udp_icmp_wait_rtt_multiplier": 4,
 }
 
+# Visual verdict indicator, kept in sync with the "Verdict interpretation"
+# table in README.md and .claude/skills/run-local-cloud-domain-connectivity-tests/SKILL.md.
+VERDICT_ICON = {
+    "PASS": "✅",
+    "PORT_REFUSED_NETWORK_OPEN": "✅",
+    "UDP_REFUSED_NETWORK_OPEN": "✅",
+    "PORT_CLOSED_HOST_REACHABLE": "⚠️",
+    "UDP_SENT_HOST_REACHABLE": "⚠️",
+    "HOST_UNREACHABLE": "❌",
+    "UDP_SENT_HOST_UNREACHABLE": "❌",
+    "UDP_SEND_FAILED": "❌",
+    "SKIPPED_MANUAL_TEST_REQUIRED": "⏭️",
+}
+
 _NO_ROUTE_ERRNOS = {errno.EHOSTUNREACH, errno.ENETUNREACH}
 
 
@@ -284,7 +298,7 @@ def run_test(test: dict, log, cfg: dict) -> str:
         else:
             verdict = "UDP_SEND_FAILED"
 
-    lines.append(f"  ---> FINAL VERDICT: {verdict}\n")
+    lines.append(f"  ---> FINAL VERDICT: {VERDICT_ICON.get(verdict, '?')} {verdict}\n")
     text = "\n".join(lines)
     log.write(text + "\n")
     log.flush()
@@ -294,7 +308,8 @@ def run_test(test: dict, log, cfg: dict) -> str:
 def run_skipped(test: dict, log) -> str:
     header = f"[{now()}] [{test['id']}] {format_endpoint(test)}"
     note = test.get("note", "Requires manual testing from Remote cloud domain.")
-    text = f"{header}\n  ---> FINAL VERDICT: SKIPPED_MANUAL_TEST_REQUIRED ({note})\n"
+    icon = VERDICT_ICON["SKIPPED_MANUAL_TEST_REQUIRED"]
+    text = f"{header}\n  ---> FINAL VERDICT: {icon} SKIPPED_MANUAL_TEST_REQUIRED ({note})\n"
     log.write(text + "\n")
     log.flush()
     return "SKIPPED_MANUAL_TEST_REQUIRED"
@@ -343,12 +358,16 @@ def main() -> None:
 
         log.write("# Summary\n")
         for verdict, count in sorted(verdicts.items()):
-            log.write(f"#   {verdict}: {count}\n")
+            log.write(f"#   {VERDICT_ICON.get(verdict, '?')} {verdict}: {count}\n")
         log.write(f"# End: {now()}\n")
 
-    print(f"Log written to {args.out}")
+    print()
+    print(f"✅ Log written to {args.out}")
+    print()
+    print("Summary:")
     for verdict, count in sorted(verdicts.items()):
-        print(f"  {verdict}: {count}")
+        print(f"  {VERDICT_ICON.get(verdict, '?')} {verdict}: {count}")
+    print()
 
 
 if __name__ == "__main__":

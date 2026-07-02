@@ -344,17 +344,23 @@ except ConnectionRefusedError:
 
 ## Verdict interpretation
 
+Each verdict printed by `run_probe.py` (in the log and in the terminal
+summary) is prefixed with one of these icons: ✅ network/firewall confirmed
+open (case A) or full pass, ⚠️ weaker/inconclusive signal (case B), ❌
+inconclusive or blocked (case C / send error), ⏭️ skipped (manual test
+required).
+
 | Verdict | Meaning |
 | --- | --- |
-| `PASS` | TCP connection established — firewall and service OK |
-| `PORT_REFUSED_NETWORK_OPEN` | Immediate TCP refusal (RST) — case A: network/firewall open up to the port, service missing in Remote cloud domain |
-| `PORT_CLOSED_HOST_REACHABLE` | TCP times out but the host responds to ping — case B: service probably missing, weaker signal than an explicit refusal |
-| `HOST_UNREACHABLE` | Neither the port nor ping respond — case C, inconclusive: check the firewall rule/route |
-| `UDP_REFUSED_NETWORK_OPEN` | ICMP port-unreachable received after the UDP send — UDP equivalent of case A |
-| `UDP_SENT_HOST_REACHABLE` | UDP datagram sent with no error and host responds to ping, but no ICMP observed — inconclusive, confirm with the receiving team |
-| `UDP_SENT_HOST_UNREACHABLE` | UDP datagram sent with no socket error, but the host doesn't respond to ping — possible firewall block |
-| `UDP_SEND_FAILED` | Socket error while sending the UDP datagram |
-| `SKIPPED_MANUAL_TEST_REQUIRED` | Local cloud domain acts as server: requires someone in Remote cloud domain to test it manually (section 3) |
+| ✅ `PASS` | TCP connection established — firewall and service OK |
+| ✅ `PORT_REFUSED_NETWORK_OPEN` | Immediate TCP refusal (RST) — case A: network/firewall open up to the port, service missing in Remote cloud domain |
+| ⚠️ `PORT_CLOSED_HOST_REACHABLE` | TCP times out but the host responds to ping — case B: service probably missing, weaker signal than an explicit refusal |
+| ❌ `HOST_UNREACHABLE` | Neither the port nor ping respond — case C, inconclusive: check the firewall rule/route |
+| ✅ `UDP_REFUSED_NETWORK_OPEN` | ICMP port-unreachable received after the UDP send — UDP equivalent of case A |
+| ⚠️ `UDP_SENT_HOST_REACHABLE` | UDP datagram sent with no error and host responds to ping, but no ICMP observed — inconclusive, confirm with the receiving team |
+| ❌ `UDP_SENT_HOST_UNREACHABLE` | UDP datagram sent with no socket error, but the host doesn't respond to ping — possible firewall block |
+| ❌ `UDP_SEND_FAILED` | Socket error while sending the UDP datagram |
+| ⏭️ `SKIPPED_MANUAL_TEST_REQUIRED` | Local cloud domain acts as server: requires someone in Remote cloud domain to test it manually (section 3) |
 
 See section 5 for the detail on how each verdict is reached and how
 to reproduce it by hand.

@@ -22,14 +22,15 @@ TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 OUT_LOG="$ROOT_DIR/outputs/local-cloud-domain-to-remote-cloud-domain-k8s-${TIMESTAMP}.log"
 
 if [[ ! -f "$SPEC" ]]; then
-  echo "$SPEC does not exist. Generate the spec first with: uv run src/generate_test_spec.py" >&2
+  echo "❌ $SPEC does not exist." >&2
+  echo "   Generate the spec first with: uv run src/generate_test_spec.py" >&2
   exit 1
 fi
 
 POD="$(kubectl -n "$NAMESPACE" get pod -l app="$DEPLOYMENT" -o jsonpath='{.items[0].metadata.name}')"
 if [[ -z "$POD" ]]; then
-  echo "No pod found with label app=$DEPLOYMENT in namespace $NAMESPACE." >&2
-  echo "Apply it first: kubectl apply -f manifests/netshoot-client-k8s.yaml" >&2
+  echo "❌ No pod found with label app=$DEPLOYMENT in namespace $NAMESPACE." >&2
+  echo "   Apply it first: kubectl apply -f manifests/netshoot-client-k8s.yaml" >&2
   exit 1
 fi
 
@@ -51,4 +52,4 @@ kubectl -n "$NAMESPACE" exec "$POD" -- \
 mkdir -p "$ROOT_DIR/outputs"
 kubectl -n "$NAMESPACE" cp "$POD:/tmp/result.log" "$OUT_LOG"
 
-echo "Log copied to $OUT_LOG" >&2
+echo "✅ Log copied to $OUT_LOG" >&2

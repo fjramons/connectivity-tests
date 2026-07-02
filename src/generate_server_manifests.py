@@ -165,10 +165,11 @@ def main() -> None:
         ip, port, protocol = key
         filename = f"{slugify(ip, port)}-k8s.yaml"
         (args.out_dir / filename).write_text(render_manifest(entry, namespace), encoding="utf-8")
-        print(f"Generated {args.out_dir / filename}")
+        print(f"  ✅ {args.out_dir / filename}")
 
-    print(f"\nTotal: {len(destinations)} server manifests in {args.out_dir}")
-    print(f"Deploy each with: kubectl apply -f manifests/servers/<file> -n {namespace}")
+    print()
+    print(f"✅ Generated {len(destinations)} server manifests in {args.out_dir}")
+    print(f"  Deploy each with: kubectl apply -f manifests/servers/<file> -n {namespace}")
 
 
 if __name__ == "__main__":

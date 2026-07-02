@@ -122,7 +122,7 @@ def main() -> None:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(script, encoding="utf-8")
     args.out.chmod(0o755)
-    print(f"Generated {args.out} ({len(filtered['tests'])} tests, source.type={args.source_type})")
+    print(f"✅ Generated {args.out} ({len(filtered['tests'])} tests, source.type={args.source_type})")
 
 
 if __name__ == "__main__":

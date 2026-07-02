@@ -340,7 +340,7 @@ def main() -> None:
 
     if args.from_yaml:
         data = sync_json_from_yaml(args.yaml_out, args.json_out)
-        print(f"Resynced {args.json_out} from {args.yaml_out} ({len(data.get('tests', []))} tests).")
+        print(f"✅ Resynced {args.json_out} from {args.yaml_out} ({len(data.get('tests', []))} tests)")
         return
 
     config = load_config(args.config)
@@ -354,11 +354,12 @@ def main() -> None:
     n_auto = sum(1 for t in data["tests"] if t["automatable"])
     n_manual = n_tests - n_auto
     n_unresolved = len(data["unresolved"])
-    print(
-        f"Generated {args.yaml_out} and {args.json_out}: "
-        f"{n_tests} cases ({n_auto} automatable local_cloud_domain->remote_cloud_domain, "
-        f"{n_manual} manual remote_cloud_domain->local_cloud_domain), {n_unresolved} rows in 'unresolved'."
-    )
+    print(f"✅ Generated {args.yaml_out} and {args.json_out}")
+    print(f"    {n_tests} test cases total")
+    print(f"    {n_auto} automatable (local_cloud_domain -> remote_cloud_domain)")
+    print(f"    {n_manual} manual (remote_cloud_domain -> local_cloud_domain)")
+    unresolved_icon = "✅" if n_unresolved == 0 else "⚠️"
+    print(f"  {unresolved_icon} {n_unresolved} rows in 'unresolved'")
 
 
 if __name__ == "__main__":
