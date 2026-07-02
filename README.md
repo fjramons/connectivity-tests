@@ -358,7 +358,7 @@ required).
 | ❌ `HOST_UNREACHABLE` | Neither the port nor ping respond — case C, inconclusive: check the firewall rule/route |
 | ✅ `UDP_REFUSED_NETWORK_OPEN` | ICMP port-unreachable received after the UDP send — UDP equivalent of case A |
 | ⚠️ `UDP_SENT_HOST_REACHABLE` | UDP datagram sent with no error and host responds to ping, but no ICMP observed — inconclusive, confirm with the receiving team |
-| ❌ `UDP_SENT_HOST_UNREACHABLE` | UDP datagram sent with no socket error, but the host doesn't respond to ping — possible firewall block |
+| ⚠️ `UDP_SENT_HOST_UNREACHABLE` | UDP datagram sent with no socket error, and the host doesn't respond to ping either — still inconclusive (see UDP note): ping failure alone doesn't confirm a block |
 | ❌ `UDP_SEND_FAILED` | Socket error while sending the UDP datagram |
 | ⏭️ `SKIPPED_MANUAL_TEST_REQUIRED` | Local cloud domain acts as server: requires someone in Remote cloud domain to test it manually (section 3) |
 

@@ -51,7 +51,7 @@ VERDICT_ICON = {
     "PORT_CLOSED_HOST_REACHABLE": "⚠️",
     "UDP_SENT_HOST_REACHABLE": "⚠️",
     "HOST_UNREACHABLE": "❌",
-    "UDP_SENT_HOST_UNREACHABLE": "❌",
+    "UDP_SENT_HOST_UNREACHABLE": "⚠️",
     "UDP_SEND_FAILED": "❌",
     "SKIPPED_MANUAL_TEST_REQUIRED": "⏭️",
 }
@@ -223,12 +223,14 @@ def run_test(test: dict, log, cfg: dict) -> str:
     if test["protocol"] == "tcp":
         status, detail = tcp_check(ip, port)
         lines.append(f"  RESULT: {status.upper()} - {detail}")
+        print(f"    RESULT: {status.upper()} - {detail}", flush=True)
         if status == "connected":
             verdict = "PASS"
         elif status == "refused":
             # Immediate refusal (RST): the packet reached the host and the firewall
             # let it through. Strong signal (case A) -- ping isn't needed to decide,
             # but it's still logged as extra context.
+            print("    · ping...", flush=True)
             ping_ok, ping_out = ping_check(ip)
             lines.append(f"  COMPLEMENTARY ping: {'host responds' if ping_ok else 'no response'}\n    {ping_out}")
             verdict = "PORT_REFUSED_NETWORK_OPEN"
@@ -243,8 +245,10 @@ def run_test(test: dict, log, cfg: dict) -> str:
                     "  NOTE: explicit routing failure (ICMP host/network unreachable), not a "
                     "silent timeout -- an intermediate router responded actively."
                 )
+            print("    · ping...", flush=True)
             ping_ok, ping_out = ping_check(ip)
             lines.append(f"  COMPLEMENTARY ping: {'host responds' if ping_ok else 'no response'}\n    {ping_out}")
+            print("    · traceroute (up to 20s)...", flush=True)
             trace_ok, trace_out = traceroute_check(ip, port)
             lines.append(f"  COMPLEMENTARY traceroute:\n    {trace_out}")
             lines.append(f"  COMPLEMENTARY traceroute summary: {summarize_traceroute(trace_out, ip)}")
@@ -263,6 +267,7 @@ def run_test(test: dict, log, cfg: dict) -> str:
                     "check the firewall rule/route to Remote cloud domain (or whether the host is powered off)."
                 )
     else:  # udp: ping first (to calibrate the ICMP margin from the RTT), then the send
+        print("    · ping...", flush=True)
         ping_ok, ping_out = ping_check(ip)
         lines.append(f"  COMPLEMENTARY ping: {'host responds' if ping_ok else 'no response'}\n    {ping_out}")
         rtt_ms = parse_ping_rtt(ping_out) if ping_ok else None
@@ -274,6 +279,7 @@ def run_test(test: dict, log, cfg: dict) -> str:
         )
         status, detail = udp_send(ip, port, icmp_wait=icmp_wait)
         lines.append(f"  RESULT: {status.upper()} - {detail}")
+        print(f"    RESULT: {status.upper()} - {detail}", flush=True)
         if status == "refused":
             verdict = "UDP_REFUSED_NETWORK_OPEN"
             lines.append(
@@ -292,8 +298,11 @@ def run_test(test: dict, log, cfg: dict) -> str:
             else:
                 verdict = "UDP_SENT_HOST_UNREACHABLE"
                 lines.append(
-                    "  VERDICT: UDP_SENT_HOST_UNREACHABLE - the UDP send did not raise a socket error, but the host "
-                    "does not respond to ping. Could be blocked by a firewall or the host could be down."
+                    "  VERDICT: UDP_SENT_HOST_UNREACHABLE - datagram sent with no error, but the host "
+                    "doesn't respond to ping either. Still NOT conclusive for the UDP port itself (see "
+                    "UDP note): ICMP is often filtered independently of the data port, so ping failure "
+                    "alone doesn't confirm a block; confirm with the receiving team in Remote cloud "
+                    "domain whether the packet arrived."
                 )
         else:
             verdict = "UDP_SEND_FAILED"
@@ -346,14 +355,22 @@ def main() -> None:
         tests = [t for t in tests if t["source"].get("type") == args.filter_source_type]
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
+    total = len(tests)
+    print(f"Running {total} tests...", flush=True)
+    print(flush=True)
     verdicts: dict[str, int] = {}
     with args.out.open("w", encoding="utf-8") as log:
         log.write(f"# Local cloud domain -> Remote cloud domain connectivity test run\n# Start: {now()}\n\n")
-        for test in tests:
+        for i, test in enumerate(tests, start=1):
+            print(f"▶ [{i}/{total}] {test['id']}  {format_endpoint(test)}", flush=True)
+            t0 = time.monotonic()
             if test.get("automatable"):
                 verdict = run_test(test, log, cfg)
             else:
                 verdict = run_skipped(test, log)
+            elapsed = time.monotonic() - t0
+            print(f"    {VERDICT_ICON.get(verdict, '?')} {verdict}  ({elapsed:.1f}s)", flush=True)
+            print(flush=True)
             verdicts[verdict] = verdicts.get(verdict, 0) + 1
 
         log.write("# Summary\n")

@@ -59,10 +59,12 @@ signal, ❌ inconclusive or blocked, ⏭️ skipped.
   inconclusive: check the firewall rule or the route.
 - ✅ `UDP_REFUSED_NETWORK_OPEN`: an ICMP port-unreachable was received after
   sending — UDP equivalent of case A.
-- ⚠️/❌ `UDP_SENT_*`: no ICMP observed, UDP doesn't confirm delivery — unlike
+- ⚠️ `UDP_SENT_*`: no ICMP observed, UDP doesn't confirm delivery — unlike
   TCP, the absence of a refusal is NOT conclusive (many firewalls filter that
-  return ICMP); use the ping result as a reachability proxy (⚠️ if it
-  responds, ❌ if it doesn't), and confirm with the receiving team if needed.
+  return ICMP, and ICMP echo/ping is often filtered independently of the
+  data port too); the ping result is only extra context (whether the host
+  answered ping or not), not a good/bad signal by itself — both `UDP_SENT_*`
+  verdicts are equally inconclusive, confirm with the receiving team if needed.
 - ⏭️ `SKIPPED_MANUAL_TEST_REQUIRED`: `remote_cloud_domain_to_local_cloud_domain` case, not attempted
   automatically — see section 3 of `README.md`.
 
