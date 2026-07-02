@@ -1,150 +1,162 @@
-# Pruebas de conectividad Domain 2 ⟷ Domain 3 (EC.3)
+# Connectivity tests Local cloud domain ⟷ Remote cloud domain
 
-Herramientas para validar, de forma sistemática, la conectividad y las reglas
-de firewall abiertas entre "Domain 2" y "Domain 3" (EC.3), a partir de la
-matriz de reglas en `inputs/*.csv`.
+Tools to systematically validate connectivity and the firewall rules
+open between "Remote cloud domain" and "Local cloud domain",
+based on the rule matrix in `inputs/*.csv`.
 
-## Los tres entornos
+## The three environments
 
-Este proyecto se mueve entre tres entornos con capacidades muy distintas:
+This project moves across three environments with very different capabilities:
 
-| Entorno | Acceso de red | Qué se hace ahí |
-|---|---|---|
-| **PC de desarrollo** | Sin acceso a Domain 3 | Generar el spec, los manifiestos K8s y el script autocontenido, con `uv` |
-| **PC de laboratorio** | `kubectl` directo a los clusters de Domain 3, y acceso al jumphost (SSH) | Aplicar manifiestos K8s, ejecutar la automatización contra clusters, abrir sesión al jumphost |
-| **Jumphost / VM en Domain 3** | Acceso directo a Domain 2, pero transferir ficheros es difícil | Pegar el script autocontenido generado en el PC de desarrollo, o usar Docker Compose manualmente |
+| Environment | Network access | What happens there |
+| --- | --- | --- |
+| **Dev PC** | No access to Local cloud domain | Generate the spec, the K8s manifests, and the self-contained script, with `uv` |
+| **Lab PC** | Direct `kubectl` to the Local cloud domain clusters, and access to the jumphost (SSH) | Apply K8s manifests, run the automation against clusters, open a session to the jumphost |
+| **Jumphost / VM in Local cloud domain** | Direct access to Remote cloud domain, but transferring files is hard | Paste the self-contained script generated on the dev PC, or use Docker Compose manually |
 
-Los artefactos generados en el PC de desarrollo (`inputs/connectivity-test-spec.*`,
-`manifests/`, `standalone/`) se trasladan al PC de laboratorio manualmente vía
-**OneDrive Web** (no automatizable). Desde ahí:
-- Todo lo relativo a **K8s** (`kubectl apply` / `exec` / `cp`) se ejecuta directamente
-  desde el PC de laboratorio.
-- Todo lo relativo a **VM/Docker** se ejecuta abriendo una sesión al jumphost y
-  pegando ahí el script de `standalone/` (autocontenido: no requiere `scp`).
+Artifacts generated on the dev PC (`inputs/connectivity-test-spec.*`,
+`manifests/`, `standalone/`) are moved to the lab PC manually via
+**OneDrive Web** (not automatable). From there:
 
-## Prerrequisitos e instalación (PC de desarrollo)
+- Everything related to **K8s** (`kubectl apply` / `exec` / `cp`) runs
+  directly from the lab PC.
+- Everything related to **VM/Docker** runs by opening a session to the
+  jumphost and pasting the `standalone/` script there (self-contained: no
+  `scp` required).
 
-- [`uv`](https://docs.astral.sh/uv/) instalado:
+## Prerequisites and installation (dev PC)
+
+- [`uv`](https://docs.astral.sh/uv/) installed:
+
   ```bash
   curl -LsSf https://astral.sh/uv/install.sh | sh
   ```
-- Python gestionado por `uv` (no hace falta instalarlo aparte):
+
+- Python managed by `uv` (no need to install it separately):
+
   ```bash
   uv python install 3.12
   ```
-- Crear el entorno virtual con las dependencias (`pyyaml`) declaradas en `pyproject.toml`:
+
+- Create the virtual environment with the dependencies (`pyyaml`) declared
+  in `pyproject.toml`:
+
   ```bash
   uv sync
   ```
-- Docker (opcional, solo si quieres probar localmente la imagen `nicolaka/netshoot:v0.15`
-  antes de llevarla a Domain 3).
 
-Prerrequisitos en el resto de entornos:
-- **PC de laboratorio**: `kubectl` configurado con contexto a los clusters de Domain 3;
-  acceso SSH (u otro) al jumphost; acceso a OneDrive Web para recibir los artefactos.
-- **Jumphost / VM de Domain 3**: Docker + Docker Compose instalados, con salida de
-  red hacia Domain 2 en los puertos a validar.
+- Docker (optional, only if you want to test the `nicolaka/netshoot:v0.15`
+  image locally before taking it to Local cloud domain).
 
-## Estructura del repositorio
+Prerequisites in the other environments:
 
+- **Lab PC**: `kubectl` configured with context to the Local
+  cloud domain clusters; SSH (or other) access to the jumphost; access to
+  OneDrive Web to receive the artifacts.
+- **Jumphost / Local cloud domain VM**: Docker + Docker Compose installed, with
+  network egress to Remote cloud domain on the ports to validate.
+
+## Repository structure
+
+```text
+inputs/                Source CSVs + generated spec (readable YAML + JSON for the runner)
+connectivity-tests.toml  Generator config (port<->protocol pairing)
+src/                    Scripts (generators on the dev PC, stdlib-only runner)
+manifests/              CLIENT (netshoot) and SERVER (per destination) K8s/Compose manifests
+standalone/             Self-contained script(s) to paste into the jumphost/VM
+outputs/                Run logs
 ```
-inputs/                CSV de origen + spec generado (YAML legible + JSON para el runner)
-connectivity-tests.toml  Config del generador (emparejamiento puerto<->protocolo)
-src/                    Scripts (generadores en el PC de desarrollo, runner stdlib-only)
-manifests/              Manifiestos K8s/Compose de CLIENTE (netshoot) y de SERVIDOR (por destino)
-standalone/             Script(s) autocontenidos para pegar en el jumphost/VM
-outputs/                Logs de las ejecuciones
-```
 
-## 1. Generar la especificación de pruebas
+## 1. Generate the test specification
 
-A partir de los dos CSV de `inputs/`:
+From the two CSVs in `inputs/`:
 
 ```bash
 uv run src/generate_test_spec.py
 ```
 
-Esto genera `inputs/connectivity-test-spec.yaml` (legible, editable a mano) y su
-gemelo `inputs/connectivity-test-spec.json` (el que realmente lee el runner,
-sin depender de PyYAML dentro de Domain 3).
+This generates `inputs/connectivity-test-spec.yaml` (readable, hand-editable) and its
+twin `inputs/connectivity-test-spec.json` (the one the runner actually reads,
+with no dependency on PyYAML inside Local cloud domain).
 
-Cada CSV se expande a casos de prueba individuales (una IP × un puerto), incluyendo
-listas (`10.2.113.129, 10.2.113.131`) y rangos (`10.180.141.99-10.180.141.105`).
-Cuando puertos y protocolos tienen la misma cantidad de elementos en una fila
-(p. ej. 3 puertos y 3 protocolos), el emparejamiento se controla desde
-`connectivity-tests.toml` (`port_protocol_pairing`: `one_to_one` por defecto,
-o `cross_product`); también se puede forzar puntualmente con
+Each CSV expands into individual test cases (one IP × one port), including
+lists (`10.2.113.129, 10.2.113.131`) and ranges (`10.180.141.99-10.180.141.105`).
+When ports and protocols have the same number of elements in a row
+(e.g. 3 ports and 3 protocols), the pairing is controlled from
+`connectivity-tests.toml` (`port_protocol_pairing`: `one_to_one` by default,
+or `cross_product`); it can also be forced for a single run with
 `--port-protocol-pairing cross_product`.
 
-Si editas el YAML a mano (por ejemplo, para anotar o corregir un caso en
-`unresolved`), resincroniza solo el JSON sin volver a leer los CSV:
+If you edit the YAML by hand (for example, to annotate or fix a case in
+`unresolved`), resync only the JSON without re-reading the CSVs:
 
 ```bash
 uv run src/generate_test_spec.py --from-yaml
 ```
 
-Cada caso de prueba indica `direction` (`domain3_to_domain2` si Domain 3 actúa de
-cliente, `domain2_to_domain3` si actúa de servidor) y `automatable` (solo `true`
-para `domain3_to_domain2`, que es lo único que podemos lanzar sin depender de que
-alguien en Domain 2 ejecute algo).
+Each test case indicates `direction` (`local_cloud_domain_to_remote_cloud_domain`
+if Local cloud domain acts as client, `remote_cloud_domain_to_local_cloud_domain`
+if it acts as server) and `automatable` (only `true` for
+`local_cloud_domain_to_remote_cloud_domain`, which is the only thing we can run without
+depending on someone in Remote cloud domain doing something).
 
-## 2. Lanzar clientes de prueba en Domain 3 (manual)
+## 2. Launch test clients in Local cloud domain (manual)
 
-### En un cluster K8s
+### On a K8s cluster
 
 ```bash
-kubectl apply -f manifests/netshoot-client-k8s.yaml   # despliega el mismo namespace que la app real
+kubectl apply -f manifests/netshoot-client-k8s.yaml   # deploy in the same namespace as the real app
 kubectl exec -it deploy/netshoot-client -- bash
 ```
 
-Dentro del pod, con las herramientas ya incluidas en `nicolaka/netshoot:v0.15`:
+Inside the pod, with the tools already included in `nicolaka/netshoot:v0.15`:
 
 ```bash
-nc -zv 10.45.66.48 1167          # TCP: ¿puerto abierto?
-nc -u -zv 10.45.66.48 1167       # UDP: envío best-effort
+nc -zv 10.45.66.48 1167          # TCP: is the port open?
+nc -u -zv 10.45.66.48 1167       # UDP: best-effort send
 curl -kv https://10.180.141.111:443
 openssl s_client -connect 10.180.141.110:6566
 ping -c4 10.45.66.48
-tcptraceroute 10.45.66.48 1167   # traceroute a nivel de puerto TCP
+tcptraceroute 10.45.66.48 1167   # port-level TCP traceroute
 ```
 
-### En una VM (Docker Compose)
+### On a VM (Docker Compose)
 
 ```bash
 docker compose -f manifests/netshoot-client-docker-compose.yml up -d
 docker compose -f manifests/netshoot-client-docker-compose.yml exec netshoot bash
 ```
 
-(mismos comandos que arriba; `network_mode: host` hace que el tráfico salga con
-la IP propia de la VM).
+(same commands as above; `network_mode: host` makes traffic leave with
+the VM's own IP).
 
-Si alguno de estos comandos falla, no te quedes en "no funciona": la sección 5
-explica cómo leer el fallo para saber si es un problema de firewall o
-simplemente que el servicio de Domain 2 aún no está desplegado.
+If any of these commands fails, don't stop at "it doesn't work": section 5
+explains how to read the failure to know whether it's a firewall problem or
+simply that the Remote cloud domain service isn't deployed yet.
 
-## 3. Servidores de prueba en Domain 3 y cómo probarlos desde Domain 2
+## 3. Test servers in Local cloud domain and how to test them from Remote cloud domain
 
-Los destinos de `domain2_to_domain3` (Spotfire, Vertica/Olap DB, IAM/Keycloak,
-Ingress de CMM) ya pertenecen a apps reales que aún no están desplegadas. Para
-poder validar el firewall sin esperar a que esas apps estén listas, genera un
-manifiesto de servidor de prueba **por cada destino único** (mismo IP:puerto que
-la app real):
+The `remote_cloud_domain_to_local_cloud_domain` destinations (Spotfire, Vertica/Olap DB, IAM/Keycloak,
+CMM Ingress) already belong to real apps that aren't deployed yet. To
+be able to validate the firewall without waiting for those apps to be ready, generate a
+test server manifest **for each unique destination** (same IP:port as
+the real app):
 
 ```bash
 uv run src/generate_server_manifests.py
 kubectl apply -f manifests/servers/<slug>-k8s.yaml
 ```
 
-Cada manifiesto despliega el mismo contenedor `nicolaka/netshoot:v0.15` actuando
-de listener (`socat`) en el puerto exacto de la app real, con su propio `Service
-type: LoadBalancer`. **No lo despliegues junto con la app real** en el mismo
-puerto. Si ya existe un `Service` real con esa IP de LoadBalancer ya reservada y
-autorizada en el firewall, edita el `Service` de ese manifiesto (o el selector
-del real) para no crear una IP nueva no autorizada — el propio YAML generado
-incluye este aviso como comentario.
+Each manifest deploys the same `nicolaka/netshoot:v0.15` container acting
+as a listener (`socat`) on the exact port of the real app, with its own `Service
+type: LoadBalancer`. **Do not deploy it together with the real app** on the same
+port. If a real `Service` already exists with that LoadBalancer IP already reserved and
+authorized in the firewall, edit that manifest's `Service` (or the real one's
+selector) to avoid creating a new, unauthorized IP — the generated YAML
+itself includes this warning as a comment.
 
-Una vez desplegado, pide a alguien en Domain 2 que pruebe con herramientas
-comunes de Linux:
+Once deployed, ask someone in Remote cloud domain to test with
+common Linux tools:
 
 ```bash
 nc -zv 10.11.119.182 443
@@ -155,180 +167,181 @@ ping -c4 10.11.119.182
 traceroute 10.11.119.182
 ```
 
-Si ninguna de estas pruebas funciona, no asumas que el firewall está mal
-configurado: podría ser que el servicio de prueba no se haya desplegado, o que
-el `Service` esté usando una IP de LoadBalancer distinta a la autorizada. La
-sección 5 explica, paso a paso, cómo distinguir ambos casos con las mismas
-herramientas (`nc`, `ping`, `traceroute`) usadas arriba.
+If none of these tests work, don't assume the firewall is
+misconfigured: it could be that the test service hasn't been deployed, or that
+the `Service` is using a different LoadBalancer IP than the authorized one. Section 5
+explains, step by step, how to distinguish both cases with the same
+tools (`nc`, `ping`, `traceroute`) used above.
 
-## 4. Automatización Domain 3 → Domain 2
+## 4. Automation Local cloud domain → Remote cloud domain
 
-Solo se automatiza esta dirección (Domain 3 actúa de cliente), porque es la que
-podemos ejecutar sin depender de que alguien en Domain 2 haga algo. El motor de
-pruebas (`src/run_probe.py`) solo usa la librería estándar de Python: hace un
-intento de conexión TCP o un envío UDP, y si falla (o siempre, para UDP, que no
-confirma entrega) ejecuta `ping`/`tcptraceroute` como diagnóstico complementario
-para distinguir "host inalcanzable" de "puerto/servicio caído pero host vivo".
-Los casos `domain2_to_domain3` se registran como `SKIPPED_MANUAL_TEST_REQUIRED`
-(ver sección 3). Además de los veredictos, el log incluye señales adicionales
-que ayudan a interpretar un fallo sin tener que repetirlo a mano: si un TCP
-falló con un "no route to host"/"network unreachable" explícito en vez de un
-timeout silencioso, se anota como tal; y tras un `traceroute`/`tcptraceroute`
-se añade una frase-resumen indicando hasta qué *hop* llegó el tráfico y si es
-o no el propio destino (ver sección 5 para el detalle de cómo se interpreta).
+Only this direction is automated (Local cloud domain acts as client), because
+it's the one we can run without depending on someone in Remote cloud domain doing
+something. The test engine (`src/run_probe.py`) only uses the Python
+standard library: it attempts a TCP connection or a UDP send, and if it fails (or always, for
+UDP, which doesn't confirm delivery) it runs `ping`/`tcptraceroute` as complementary
+diagnostics to distinguish "host unreachable" from "port/service down but
+host alive". `remote_cloud_domain_to_local_cloud_domain` cases are logged as
+`SKIPPED_MANUAL_TEST_REQUIRED`
+(see section 3). Besides the verdicts, the log includes additional signals
+that help interpret a failure without having to repeat it by hand: if a TCP
+failure came with an explicit "no route to host"/"network unreachable" instead of a
+silent timeout, it's noted as such; and after a `traceroute`/`tcptraceroute`
+a summary sentence is added indicating how far the traffic reached and whether
+it reached the destination itself or not (see section 5 for the detail on how this is interpreted).
 
-El margen de espera usado en el truco de detección de ICMP en UDP (ver
-sección 5, nota UDP) se calcula a partir del RTT medido por `ping` a ese
-mismo host, y es configurable en `connectivity-tests.toml` (tabla `[probe]`)
-si los valores por defecto no encajan con la latencia real Domain 3 → Domain 2;
-ambos backends de abajo lo usan automáticamente si el fichero existe.
+The wait margin used in the UDP ICMP detection trick (see
+section 5, UDP note) is computed from the RTT measured by `ping` to that
+same host, and is configurable in `connectivity-tests.toml` (`[probe]` table)
+if the default values don't fit the real Local cloud domain → Remote cloud domain latency;
+both backends below use it automatically if the file exists.
 
-### Backend K8s (desde el PC de laboratorio)
+### K8s backend (from the lab PC)
 
 ```bash
-kubectl apply -f manifests/netshoot-client-k8s.yaml   # una sola vez
-src/run_via_kubectl.sh [namespace] [nombre-deployment]
+kubectl apply -f manifests/netshoot-client-k8s.yaml   # once
+src/run_via_kubectl.sh [namespace] [deployment-name]
 ```
 
-El script hace `kubectl cp` de `run_probe.py`, del spec y de
-`connectivity-tests.toml` (si existe) al pod, lo ejecuta con `kubectl exec`, y
-copia el log resultante a `outputs/domain3-to-domain2-k8s-<timestamp>.log`.
-Todo desde el PC de laboratorio, sin pasar por el jumphost.
+The script does a `kubectl cp` of `run_probe.py`, the spec, and
+`connectivity-tests.toml` (if it exists) to the pod, runs it with `kubectl exec`, and
+copies the resulting log to `outputs/local-cloud-domain-to-remote-cloud-domain-k8s-<timestamp>.log`.
+All from the lab PC, without going through the jumphost.
 
-### Backend VM/jumphost (script autocontenido)
+### VM/jumphost backend (self-contained script)
 
-En el PC de desarrollo, genera el script (embebe el código de `run_probe.py`,
-el subconjunto del spec con `source.type == "VM"`, y `connectivity-tests.toml`
-si existe):
+On the dev PC, generate the script (it embeds the `run_probe.py` code,
+the spec subset with `source.type == "VM"`, and `connectivity-tests.toml`
+if it exists):
 
 ```bash
 uv run src/generate_standalone_script.py
 ```
 
-Esto crea `standalone/domain3-to-domain2-vm-tests.sh`. Llévalo al PC de
-laboratorio (OneDrive Web), abre una sesión SSH al jumphost/VM desde ahí, y
-**pega el contenido completo del fichero** en la terminal (no requiere `scp`: el
-script escribe sus propios ficheros temporales localmente y solo necesita
-Docker instalado). Al terminar, imprime el log delimitado por
-`===== INICIO DEL LOG =====` / `===== FIN DEL LOG =====`: copia ese bloque y
-guárdalo como `outputs/domain3-to-domain2-vm-tests-<timestamp>.log` en el PC de
-laboratorio.
+This creates `standalone/local-cloud-domain-to-remote-cloud-domain-vm-tests.sh`. Take it
+to the lab PC (OneDrive Web), open an SSH session to the jumphost/VM from there, and
+**paste the file's entire content** into the terminal (no `scp` needed: the
+script writes its own temp files locally and only needs
+Docker installed). When it finishes, it prints the log delimited by
+`===== LOG START =====` / `===== LOG END =====`: copy that block and
+save it as `outputs/local-cloud-domain-to-remote-cloud-domain-vm-tests-<timestamp>.log`
+on the lab PC.
 
-## 5. Diagnóstico manual paso a paso (sin scripts)
+## 5. Step-by-step manual diagnosis (no scripts)
 
-Todo lo que hace `src/run_probe.py` se puede reproducir a mano con
-herramientas comunes de Linux — esto es intencional: la automatización no
-debe ser una caja negra. Esta sección explica cómo interpretar un fallo de
-conectividad para distinguir tres situaciones:
+Everything `src/run_probe.py` does can be reproduced by hand with
+common Linux tools — this is intentional: the automation should not
+be a black box. This section explains how to interpret a connectivity
+failure to distinguish three situations:
 
-- **A) No existe el servidor al otro lado, pero la red está abierta**
-  (señal fuerte): la conexión TCP es **rechazada al instante** (`RST`,
-  "Connection refused"). El paquete llegó hasta el host de destino y el
-  firewall lo dejó pasar — solo falta que el servicio esté desplegado.
-- **B) Probablemente no existe el servidor, pero con menos certeza que en A**:
-  la conexión TCP **agota el timeout** (silencio total, sin `RST`) pero
-  `ping`/`tcptraceroute` sí llegan al host. Compatible con "nada escuchando
-  en ese puerto", pero también con un firewall que deja pasar ICMP y filtra
-  selectivamente ese puerto TCP — señal más débil que A.
-- **C) Ninguna de las dos anteriores** (no concluyente / sospechar del
-  firewall): ni el puerto ni `ping`/`tcptraceroute` responden. Desde fuera no
-  se puede distinguir "regla de firewall no aplicada" de "host apagado"; la
-  primera sospecha razonable es la regla de firewall.
+- **A) The server on the other side doesn't exist, but the network is open**
+  (strong signal): the TCP connection is **refused instantly**
+  (`RST`, "Connection refused"). The packet reached the destination host and the
+  firewall let it through — only the service is missing.
+- **B) The server probably doesn't exist, but with less certainty than in A**:
+  the TCP connection **times out** (total silence, no `RST`) but
+  `ping`/`tcptraceroute` do reach the host. Consistent with "nothing listening
+  on that port", but also with a firewall that lets ICMP through and selectively
+  filters that TCP port — weaker signal than A.
+- **C) Neither of the above** (inconclusive / suspect the
+  firewall): neither the port nor `ping`/`tcptraceroute` respond. From the outside
+  you can't distinguish "firewall rule not applied" from "host powered off"; the
+  first reasonable suspicion is the firewall rule.
 
-### Cómo distinguir "rechazado" de "timeout" a mano (TCP)
+### How to distinguish "refused" from "timeout" by hand (TCP)
 
 ```bash
-nc -zv -w3 <ip> <puerto>
-# Ejemplo real de rechazo (caso A):
+nc -zv -w3 <ip> <port>
+# Real example of a refusal (case A):
 #   nc: connect to 127.0.0.1 port 54329 (tcp) failed: Connection refused
-# Ejemplo real de timeout (casos B/C, sin RST):
+# Real example of a timeout (cases B/C, no RST):
 #   nc: connect to 203.0.113.1 port 12345 (tcp) timed out: Operation now in progress
 
-# Alternativa sin nc (mismo mensaje de error, vía bash):
-bash -c 'cat < /dev/tcp/<ip>/<puerto>'
-#   bash: connect: Connection refused        <- caso A
-#   (se queda colgado hasta el timeout de bash/TCP, sin mensaje) <- casos B/C
+# Alternative without nc (same error message, via bash):
+bash -c 'cat < /dev/tcp/<ip>/<port>'
+#   bash: connect: Connection refused        <- case A
+#   (hangs until the bash/TCP timeout, no message) <- cases B/C
 ```
 
-El mensaje **"Connection refused" es siempre caso A** (rechazo inmediato,
-red abierta). Cualquier otro desenlace (timeout, "No route to host", sin
-respuesta) requiere el siguiente paso para distinguir B de C.
+The message **"Connection refused" is always case A** (immediate refusal,
+open network). Any other outcome (timeout, "No route to host", no
+response) requires the next step to distinguish B from C.
 
-### Tabla de decisión
+### Decision table
 
-| Señal observada | Conclusión | Veredicto equivalente en `run_probe.py` |
-|---|---|---|
-| Conexión TCP establecida | Conectividad OK | `PASS` |
-| TCP rechazado al instante ("Connection refused") | **A**: red abierta hasta el host, falta el servicio | `PORT_REFUSED_NETWORK_OPEN` |
-| TCP agota timeout, pero `ping`/`tcptraceroute` llegan al host | **B**: probablemente falta el servicio, señal más débil que A | `PORT_CLOSED_HOST_REACHABLE` |
-| TCP agota timeout y `ping`/`tcptraceroute` tampoco llegan | **C**: no concluyente / sospechar firewall | `HOST_UNREACHABLE` |
-| UDP: ICMP port-unreachable recibido tras el envío | **A** (equivalente UDP): red abierta, falta el listener | `UDP_REFUSED_NETWORK_OPEN` |
-| UDP: enviado sin error observable, `ping` OK | Ver nota UDP — no concluyente | `UDP_SENT_HOST_REACHABLE` |
-| UDP: enviado sin error observable, `ping` falla | Ver nota UDP — no concluyente | `UDP_SENT_HOST_UNREACHABLE` |
+| Observed signal | Conclusion | Equivalent verdict in `run_probe.py` |
+| --- | --- | --- |
+| TCP connection established | Connectivity OK | `PASS` |
+| TCP refused instantly ("Connection refused") | **A**: network open up to the host, service missing | `PORT_REFUSED_NETWORK_OPEN` |
+| TCP times out, but `ping`/`tcptraceroute` reach the host | **B**: service probably missing, weaker signal than A | `PORT_CLOSED_HOST_REACHABLE` |
+| TCP times out and `ping`/`tcptraceroute` don't reach either | **C**: inconclusive / suspect the firewall | `HOST_UNREACHABLE` |
+| UDP: ICMP port-unreachable received after sending | **A** (UDP equivalent): network open, listener missing | `UDP_REFUSED_NETWORK_OPEN` |
+| UDP: sent with no observable error, `ping` OK | See UDP note — inconclusive | `UDP_SENT_HOST_REACHABLE` |
+| UDP: sent with no observable error, `ping` fails | See UDP note — inconclusive | `UDP_SENT_HOST_UNREACHABLE` |
 
-### Nota sobre UDP
+### Note on UDP
 
-A diferencia de TCP, UDP no tiene handshake: no hay un "Connection refused"
-directo. Existe un equivalente — el host de destino puede responder con un
-ICMP *port-unreachable* cuando nada escucha en ese puerto — pero, a
-diferencia del `RST` de TCP, **muchos firewalls corporativos filtran ese
-ICMP de vuelta** aunque el UDP en sí pase sin problema. Por eso:
+Unlike TCP, UDP has no handshake: there's no direct "Connection refused".
+An equivalent exists — the destination host can respond with an
+ICMP *port-unreachable* when nothing is listening on that port — but, unlike
+TCP's `RST`, **many corporate firewalls filter that return
+ICMP** even though the UDP itself gets through fine. Because of this:
 
-- Si se observa el ICMP port-unreachable, es una señal tan fuerte como el
-  caso A en TCP (`UDP_REFUSED_NETWORK_OPEN`).
-- Si **no** se observa, **no significa nada** (a diferencia de un timeout en
-  TCP): es simplemente el caso más común, incluso con el firewall bien
-  configurado. Solo queda usar `ping` como proxy de alcanzabilidad del host,
-  y en última instancia confirmar con el equipo receptor en Domain 2 si les
-  llegó el paquete (p. ej. revisando logs/trazas de Netcool para el caso
-  SNMP).
+- If the ICMP port-unreachable is observed, it's as strong a signal as
+  case A in TCP (`UDP_REFUSED_NETWORK_OPEN`).
+- If it's **not** observed, **it means nothing** (unlike a timeout in
+  TCP): it's simply the most common case, even with the firewall correctly
+  configured. The only option left is to use `ping` as a proxy for host reachability,
+  and ultimately confirm with the receiving team in Remote cloud domain whether the
+  packet arrived (e.g. checking Netcool logs/traces for the
+  SNMP case).
 
-`nc`/`bash` no exponen ese ICMP de forma fiable. Para replicarlo a mano, usa
-este one-liner de Python (mismo truco que usa `run_probe.py`: socket UDP
-"conectado" + doble envío, ya que en Linux el ICMP pendiente se entrega en la
-siguiente operación sobre el socket, no en el primer `send`):
+`nc`/`bash` don't expose that ICMP reliably. To reproduce it by hand, use
+this Python one-liner (the same trick used by `run_probe.py`: "connected" UDP
+socket + double send, since on Linux the pending ICMP is delivered on the
+next socket operation, not on the first `send`):
 
 ```bash
 python3 -c "
 import socket, time
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(3)
-s.connect(('<ip>', <puerto>)); s.send(b'probe')
+s.connect(('<ip>', <port>)); s.send(b'probe')
 time.sleep(0.5)
 try:
-    s.send(b'probe'); print('sin ICMP port-unreachable (no concluyente)')
+    s.send(b'probe'); print('no ICMP port-unreachable (inconclusive)')
 except ConnectionRefusedError:
-    print('ICMP port-unreachable recibido -> puerto rechazado, red abierta')
+    print('ICMP port-unreachable received -> port refused, network open')
 "
 ```
 
-### Procedimiento manual completo (ejemplo: Netcool UDP 1167)
+### Full manual procedure (example: Netcool UDP 1167)
 
-1. Desplegar/entrar al cliente en Domain 3 (sección 2): `kubectl exec -it
-   deploy/netshoot-client -- bash` o `docker compose ... exec netshoot bash`.
-2. Intentar la conexión con la herramienta del protocolo correspondiente:
+1. Deploy/enter the client in Local cloud domain (section 2): `kubectl exec -it
+   deploy/netshoot-client -- bash` or `docker compose ... exec netshoot bash`.
+2. Attempt the connection with the tool for the corresponding protocol:
    - TCP: `nc -zv -w3 10.180.141.111 443`
-   - UDP: el one-liner de Python de arriba, con la IP/puerto del caso (p. ej.
+   - UDP: the Python one-liner above, with the IP/port for the case (e.g.
      `10.45.66.48` / `1167`).
-3. Si el resultado es "Connection refused" (TCP) o ICMP port-unreachable
-   (UDP) → **caso A**, fin del diagnóstico: falta el servicio, no es firewall.
-4. Si no, `ping -c4 <ip>`.
-5. Si el ping responde, `tcptraceroute <ip> <puerto>` (TCP) o `traceroute
-   <ip>` (UDP) para confirmar que el camino llega hasta el destino.
-6. Aplicar la tabla de decisión de arriba con lo observado en 2-5.
+3. If the result is "Connection refused" (TCP) or ICMP port-unreachable
+   (UDP) → **case A**, diagnosis done: the service is missing, it's not the firewall.
+4. If not, `ping -c4 <ip>`.
+5. If the ping responds, `tcptraceroute <ip> <port>` (TCP) or `traceroute
+   <ip>` (UDP) to confirm the path reaches the destination.
+6. Apply the decision table above with what you observed in 2-5.
 
-## Interpretación de veredictos
+## Verdict interpretation
 
-| Veredicto | Significado |
-|---|---|
-| `PASS` | Conexión TCP establecida — firewall y servicio OK |
-| `PORT_REFUSED_NETWORK_OPEN` | Rechazo TCP inmediato (RST) — caso A: red/firewall abiertos hasta el puerto, falta el servicio en Domain 2 |
-| `PORT_CLOSED_HOST_REACHABLE` | TCP agota el timeout pero el host responde a ping — caso B: probablemente falta el servicio, señal más débil que un rechazo explícito |
-| `HOST_UNREACHABLE` | Ni el puerto ni el ping responden — caso C, no concluyente: revisar regla de firewall/ruta |
-| `UDP_REFUSED_NETWORK_OPEN` | ICMP port-unreachable recibido tras el envío UDP — equivalente UDP del caso A |
-| `UDP_SENT_HOST_REACHABLE` | Datagrama UDP enviado sin error y host responde a ping, pero sin ICMP observado — no concluyente, confirmar con el equipo receptor |
-| `UDP_SENT_HOST_UNREACHABLE` | Datagrama UDP enviado sin error de socket, pero el host no responde a ping — posible bloqueo de firewall |
-| `UDP_SEND_FAILED` | Error de socket al enviar el datagrama UDP |
-| `SKIPPED_MANUAL_TEST_REQUIRED` | Domain 3 actúa de servidor: requiere que alguien en Domain 2 lo pruebe manualmente (sección 3) |
+| Verdict | Meaning |
+| --- | --- |
+| `PASS` | TCP connection established — firewall and service OK |
+| `PORT_REFUSED_NETWORK_OPEN` | Immediate TCP refusal (RST) — case A: network/firewall open up to the port, service missing in Remote cloud domain |
+| `PORT_CLOSED_HOST_REACHABLE` | TCP times out but the host responds to ping — case B: service probably missing, weaker signal than an explicit refusal |
+| `HOST_UNREACHABLE` | Neither the port nor ping respond — case C, inconclusive: check the firewall rule/route |
+| `UDP_REFUSED_NETWORK_OPEN` | ICMP port-unreachable received after the UDP send — UDP equivalent of case A |
+| `UDP_SENT_HOST_REACHABLE` | UDP datagram sent with no error and host responds to ping, but no ICMP observed — inconclusive, confirm with the receiving team |
+| `UDP_SENT_HOST_UNREACHABLE` | UDP datagram sent with no socket error, but the host doesn't respond to ping — possible firewall block |
+| `UDP_SEND_FAILED` | Socket error while sending the UDP datagram |
+| `SKIPPED_MANUAL_TEST_REQUIRED` | Local cloud domain acts as server: requires someone in Remote cloud domain to test it manually (section 3) |
 
-Ver la sección 5 para el detalle de cómo se llega a cada veredicto y cómo
-reproducirlo a mano.
+See section 5 for the detail on how each verdict is reached and how
+to reproduce it by hand.

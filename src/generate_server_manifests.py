@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Genera manifests/servers/<slug>-k8s.yaml: un Deployment+Service por cada
-destino unico (ip+puerto+protocolo) donde Domain 3 actua de SERVIDOR
-(direction: domain2_to_domain3 en el spec).
+"""Generates manifests/servers/<slug>-k8s.yaml: one Deployment+Service per
+unique destination (ip+port+protocol) where Local cloud domain acts as SERVER
+(direction: remote_cloud_domain_to_local_cloud_domain in the spec).
 
-Cada manifiesto usa la misma imagen nicolaka/netshoot:v0.15 como listener
-(via socat) escuchando exactamente en el puerto de la app real, que aun no
-esta desplegada -- para poder validar el firewall ya autorizado en ese
-IP:puerto sin esperar a que la app real este lista.
+Each manifest uses the same nicolaka/netshoot:v0.15 image as a listener
+(via socat) listening on exactly the real app's port, which isn't
+deployed yet -- so the firewall rule already authorized on that
+IP:port can be validated without waiting for the real app to be ready.
 
-Se ejecuta en el PC de desarrollo con `uv run src/generate_server_manifests.py`.
-Solo usa la libreria estandar (no requiere PyYAML: los manifiestos se generan
-como texto plano ya formateado).
+Runs on the dev PC with `uv run src/generate_server_manifests.py`.
+Only uses the standard library (doesn't require PyYAML: manifests are generated
+as already-formatted plain text).
 """
 from __future__ import annotations
 
@@ -24,17 +24,17 @@ DEFAULT_SPEC = ROOT / "inputs" / "connectivity-test-spec.json"
 DEFAULT_OUT_DIR = ROOT / "manifests" / "servers"
 
 MANIFEST_TEMPLATE = """\
-# Servidor de prueba TEMPORAL para {ip}:{port}/{protocol} ({description}).
+# TEMPORARY test server for {ip}:{port}/{protocol} ({description}).
 #
-# Este manifiesto sustituye temporalmente a la app real de Domain 3 en este
-# puerto -- NO lo despliegues a la vez que la app real (mismo Service/puerto).
+# This manifest temporarily replaces the real Local cloud domain app on this
+# port -- do NOT deploy it at the same time as the real app (same Service/port).
 #
-# Si ya existe un Service real con esta IP de LoadBalancer ya reservada y
-# autorizada en el firewall, ajusta el "selector" de ese Service para que
-# apunte a "app: {app_label}" en vez de aplicar el Service de abajo: un
-# Service nuevo obtendria una IP de LoadBalancer DISTINTA a la ya autorizada.
+# If a real Service already exists with this LoadBalancer IP already reserved
+# and authorized in the firewall, adjust that Service's "selector" to
+# point to "app: {app_label}" instead of applying the Service below: a
+# new Service would get a DIFFERENT LoadBalancer IP from the one already authorized.
 #
-# Origen en el spec: {origin_summary}
+# Origin in the spec: {origin_summary}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -88,7 +88,7 @@ def load_tests(spec_path: Path) -> list[dict]:
 def unique_destinations(tests: list[dict]) -> dict[tuple[str, int, str], dict]:
     destinations: dict[tuple[str, int, str], dict] = {}
     for t in tests:
-        if t["direction"] != "domain2_to_domain3":
+        if t["direction"] != "remote_cloud_domain_to_local_cloud_domain":
             continue
         key = (t["destination"]["ip"], t["port"], t["protocol"])
         entry = destinations.setdefault(
@@ -101,7 +101,7 @@ def unique_destinations(tests: list[dict]) -> dict[tuple[str, int, str], dict]:
                 "origins": [],
             },
         )
-        desc = t["destination"].get("description") or t.get("protocol_label") or "sin descripcion"
+        desc = t["destination"].get("description") or t.get("protocol_label") or "no description"
         entry["descriptions"].add(desc)
         entry["origins"].append(f"{t['origin']['file']}#{t['origin']['row']}")
     return destinations
@@ -140,9 +140,9 @@ def main() -> None:
         ip, port, protocol = key
         filename = f"{slugify(ip, port)}-k8s.yaml"
         (args.out_dir / filename).write_text(render_manifest(entry), encoding="utf-8")
-        print(f"Generado {args.out_dir / filename}")
+        print(f"Generated {args.out_dir / filename}")
 
-    print(f"\nTotal: {len(destinations)} manifiestos de servidor en {args.out_dir}")
+    print(f"\nTotal: {len(destinations)} server manifests in {args.out_dir}")
 
 
 if __name__ == "__main__":

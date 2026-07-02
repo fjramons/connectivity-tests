@@ -1,21 +1,21 @@
-# Configuracion del generador de especificacion de pruebas (src/generate_test_spec.py)
+# Configuration for the test spec generator (src/generate_test_spec.py)
 
-# Que hacer cuando, en una misma fila del CSV, "Port Number / Range" y "Protocol"
-# tienen el mismo numero de elementos (>1):
-#   - "one_to_one":     empareja por posicion (443<->https, 8081<->tcp, 8082<->tcp over mTLS)
-#   - "cross_product":  genera todas las combinaciones puerto x protocolo
+# What to do when, within the same CSV row, "Port Number / Range" and "Protocol"
+# have the same number of elements (>1):
+#   - "one_to_one":     pair by position (443<->https, 8081<->tcp, 8082<->tcp over mTLS)
+#   - "cross_product":  generate all port x protocol combinations
 port_protocol_pairing = "one_to_one"
 
-# Configuracion del motor de pruebas (src/run_probe.py), usada solo si se invoca
-# con --config connectivity-tests.toml (si no, usa estos mismos valores como
-# defecto embebido, para poder seguir ejecutandose de forma autocontenida).
+# Configuration for the probe engine (src/run_probe.py), used only if invoked
+# with --config connectivity-tests.toml (otherwise it uses these same values as
+# an embedded default, so it can keep running standalone).
 [probe]
-# Margen de espera entre los dos "send()" del truco de deteccion de ICMP
-# port-unreachable en UDP (ver README, seccion 5, nota UDP). Se calibra a
-# partir del RTT medido por "ping" a ese mismo host:
-#   margen = clamp(rtt_medio_ms/1000 * udp_icmp_wait_rtt_multiplier,
+# Wait margin between the two "send()" calls of the ICMP port-unreachable
+# detection trick for UDP (see README, section 5, UDP note). Calibrated from
+# the RTT measured by "ping" to that same host:
+#   margin = clamp(mean_rtt_ms/1000 * udp_icmp_wait_rtt_multiplier,
 #                   udp_icmp_wait_default_seconds, udp_icmp_wait_max_seconds)
-# Si no hay RTT disponible (ping fallo), se usa udp_icmp_wait_default_seconds.
+# If no RTT is available (ping failed), udp_icmp_wait_default_seconds is used.
 udp_icmp_wait_default_seconds = 0.5
 udp_icmp_wait_max_seconds = 2.0
 udp_icmp_wait_rtt_multiplier = 4

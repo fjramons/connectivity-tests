@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Genera inputs/connectivity-test-spec.{yaml,json} a partir de los CSV de inputs/.
+"""Generates inputs/connectivity-test-spec.{yaml,json} from the CSVs in inputs/.
 
-Se ejecuta en el PC de desarrollo con `uv run src/generate_test_spec.py`.
-Requiere PyYAML (declarado en pyproject.toml, instalado por `uv sync`).
+Runs on the dev PC with `uv run src/generate_test_spec.py`.
+Requires PyYAML (declared in pyproject.toml, installed by `uv sync`).
 """
 from __future__ import annotations
 
@@ -25,8 +25,8 @@ DEFAULT_CONFIG = ROOT / "connectivity-tests.toml"
 DEFAULT_YAML_OUT = DEFAULT_INPUTS_DIR / "connectivity-test-spec.yaml"
 DEFAULT_JSON_OUT = DEFAULT_INPUTS_DIR / "connectivity-test-spec.json"
 
-SERVERS_CSV_GLOB = "*Servers at EC.3.csv"
-CLIENTS_CSV_GLOB = "*Clients at EC.3.csv"
+SERVERS_CSV_GLOB = "*Servers*.csv"
+CLIENTS_CSV_GLOB = "*Clients*.csv"
 
 UDP_RE = re.compile(r"\budp\b", re.IGNORECASE)
 IP_RANGE_RE = re.compile(r"^(\d+\.\d+\.\d+\.\d+)\s*-\s*(\d+\.\d+\.\d+\.\d+)$")
@@ -95,8 +95,8 @@ def pair_ports_protocols(
     # Cardinalities differ and neither is 1 -- no unambiguous pairing possible.
     return (
         list(itertools.product(ports, protocols)),
-        f"{len(ports)} puertos y {len(protocols)} protocolos no coinciden en cantidad; "
-        "se generó el producto cruzado como fallback seguro.",
+        f"{len(ports)} ports and {len(protocols)} protocols don't match in count; "
+        "the cross product was generated as a safe fallback.",
     )
 
 
@@ -140,9 +140,9 @@ def build_test_cases_from_row(
             {
                 "origin": {"file": origin_file, "row": origin_row},
                 "reason": (
-                    "IP de destino no encontrada/parseable"
+                    "Destination IP not found/parseable"
                     if not dest_ips
-                    else "Puerto no encontrado/parseable"
+                    else "Port not found/parseable"
                 ),
                 "raw": {
                     "destination_range": destination_range_raw,
@@ -164,12 +164,12 @@ def build_test_cases_from_row(
             }
         )
 
-    automatable = direction == "domain3_to_domain2"
+    automatable = direction == "local_cloud_domain_to_remote_cloud_domain"
     cases = []
     for ip, (port, protocol_label) in itertools.product(dest_ips, pairs):
         protocol_label = protocol_label or "unknown"
         case = {
-            "id": f"{'c' if direction == 'domain3_to_domain2' else 's'}{next(counter):04d}",
+            "id": f"{'c' if direction == 'local_cloud_domain_to_remote_cloud_domain' else 's'}{next(counter):04d}",
             "direction": direction,
             "automatable": automatable,
             "source": source,
@@ -188,15 +188,15 @@ def build_test_cases_from_row(
         }
         if not automatable:
             case["note"] = (
-                "Domain 3 actua de servidor: esta prueba requiere ejecucion manual "
-                "desde un cliente en Domain 2. Ver README.md."
+                "Local cloud domain acts as server: this test requires manual execution "
+                "from a client in Remote cloud domain. See README.md."
             )
         cases.append(case)
     return cases
 
 
 def parse_servers_csv(path: Path, pairing_mode: str, unresolved: list[dict], counter: itertools.count) -> list[dict]:
-    """'Servers at EC.3.csv': Domain 3 is the server -> direction domain2_to_domain3."""
+    """'Servers' CSV: Local cloud domain is the server -> direction remote_cloud_domain_to_local_cloud_domain."""
     cases = []
     for i, row in enumerate(read_csv_rows(path), start=1):
         source = {
@@ -207,7 +207,7 @@ def parse_servers_csv(path: Path, pairing_mode: str, unresolved: list[dict], cou
         }
         cases.extend(
             build_test_cases_from_row(
-                direction="domain2_to_domain3",
+                direction="remote_cloud_domain_to_local_cloud_domain",
                 source=source,
                 destination_location=clean(row.get("Destination Location")),
                 destination_type=clean(row.get("Destination Type")),
@@ -228,7 +228,7 @@ def parse_servers_csv(path: Path, pairing_mode: str, unresolved: list[dict], cou
 
 
 def parse_clients_csv(path: Path, pairing_mode: str, unresolved: list[dict], counter: itertools.count) -> list[dict]:
-    """'Clients at EC.3.csv': Domain 3 is the client -> direction domain3_to_domain2."""
+    """'Clients' CSV: Local cloud domain is the client -> direction local_cloud_domain_to_remote_cloud_domain."""
     cases = []
     for i, row in enumerate(read_csv_rows(path), start=1):
         source = {
@@ -239,7 +239,7 @@ def parse_clients_csv(path: Path, pairing_mode: str, unresolved: list[dict], cou
         }
         cases.extend(
             build_test_cases_from_row(
-                direction="domain3_to_domain2",
+                direction="local_cloud_domain_to_remote_cloud_domain",
                 source=source,
                 destination_location=clean(row.get("Destination Location")),
                 destination_type=None,
@@ -262,7 +262,7 @@ def parse_clients_csv(path: Path, pairing_mode: str, unresolved: list[dict], cou
 def find_csv(inputs_dir: Path, pattern: str) -> Path:
     matches = sorted(inputs_dir.glob(pattern))
     if not matches:
-        raise SystemExit(f"No se encontró ningún CSV que coincida con {pattern!r} en {inputs_dir}")
+        raise SystemExit(f"No CSV matching {pattern!r} was found in {inputs_dir}")
     return matches[0]
 
 
@@ -291,10 +291,10 @@ def generate_from_csv(inputs_dir: Path, config: dict) -> dict:
 
 
 YAML_HEADER = """\
-# Especificacion de pruebas de conectividad Domain 2 <-> Domain 3 (EC.3).
-# Generado por src/generate_test_spec.py -- editable a mano.
-# Tras editar a mano, ejecutar `uv run src/generate_test_spec.py --from-yaml`
-# para resincronizar connectivity-test-spec.json SIN volver a leer los CSV.
+# Connectivity test spec for Remote cloud domain <-> Local cloud domain.
+# Generated by src/generate_test_spec.py -- editable by hand.
+# After editing by hand, run `uv run src/generate_test_spec.py --from-yaml`
+# to resync connectivity-test-spec.json WITHOUT re-reading the CSVs.
 """
 
 
@@ -310,7 +310,7 @@ def write_outputs(data: dict, yaml_path: Path, json_path: Path) -> None:
 
 def sync_json_from_yaml(yaml_path: Path, json_path: Path) -> dict:
     if not yaml_path.exists():
-        raise SystemExit(f"No existe {yaml_path}; genera primero el spec con --from-csv (modo por defecto).")
+        raise SystemExit(f"{yaml_path} does not exist; generate the spec first with --from-csv (default mode).")
     with yaml_path.open(encoding="utf-8") as f:
         data = yaml.safe_load(f)
     with json_path.open("w", encoding="utf-8") as f:
@@ -329,18 +329,18 @@ def main() -> None:
         "--port-protocol-pairing",
         choices=["one_to_one", "cross_product"],
         default=None,
-        help="Sobreescribe connectivity-tests.toml para esta ejecucion.",
+        help="Overrides connectivity-tests.toml for this run.",
     )
     parser.add_argument(
         "--from-yaml",
         action="store_true",
-        help="No relee los CSV: resincroniza --json-out a partir de --yaml-out (ediciones manuales).",
+        help="Does not re-read the CSVs: resyncs --json-out from --yaml-out (manual edits).",
     )
     args = parser.parse_args()
 
     if args.from_yaml:
         data = sync_json_from_yaml(args.yaml_out, args.json_out)
-        print(f"Resincronizado {args.json_out} a partir de {args.yaml_out} ({len(data.get('tests', []))} tests).")
+        print(f"Resynced {args.json_out} from {args.yaml_out} ({len(data.get('tests', []))} tests).")
         return
 
     config = load_config(args.config)
@@ -355,9 +355,9 @@ def main() -> None:
     n_manual = n_tests - n_auto
     n_unresolved = len(data["unresolved"])
     print(
-        f"Generado {args.yaml_out} y {args.json_out}: "
-        f"{n_tests} casos ({n_auto} automatizables domain3->domain2, "
-        f"{n_manual} manuales domain2->domain3), {n_unresolved} filas en 'unresolved'."
+        f"Generated {args.yaml_out} and {args.json_out}: "
+        f"{n_tests} cases ({n_auto} automatable local_cloud_domain->remote_cloud_domain, "
+        f"{n_manual} manual remote_cloud_domain->local_cloud_domain), {n_unresolved} rows in 'unresolved'."
     )
 
 

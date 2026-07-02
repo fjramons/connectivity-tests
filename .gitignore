@@ -1,15 +1,15 @@
-# Entorno Python gestionado por uv
+# Python environment managed by uv
 .venv/
 __pycache__/
 *.py[cod]
 
-# Logs de ejecucion de pruebas (resultados de cada run, no artefactos de fuente)
+# Test run logs (results of each run, not source artifacts)
 outputs/*
 !outputs/.gitkeep
 
-# Datos con topologia de red / IPs reales de Domain 2 y Domain 3: CSV de origen,
-# spec generada, y todo lo derivado de ella. Es reproducible con los scripts de
-# src/ (uv run src/generate_test_spec.py, etc.), no hace falta versionarlo.
+# Data with real network topology / IPs of Remote cloud domain and Local cloud domain: source CSVs,
+# generated spec, and everything derived from it. Reproducible with the scripts in
+# src/ (uv run src/generate_test_spec.py, etc.), no need to version it.
 inputs/*
 !inputs/.gitkeep
 manifests/servers/*
@@ -17,13 +17,13 @@ manifests/servers/*
 standalone/*
 !standalone/.gitkeep
 
-# Editores / SO
+# Editors / OS
 .DS_Store
 .idea/
 .vscode/
 
-# Secretos / material sensible que no deberia acabar en el repo por error
-# (certificados/claves usados en pruebas mTLS, kubeconfigs, credenciales locales)
+# Secrets / sensitive material that should never end up in the repo by mistake
+# (certificates/keys used in mTLS tests, kubeconfigs, local credentials)
 *.pem
 *.key
 *.p12

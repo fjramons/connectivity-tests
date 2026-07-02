@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Motor de pruebas de conectividad Domain 3 -> Domain 2.
+"""Connectivity probe engine for Local cloud domain -> Remote cloud domain.
 
-Solo usa la libreria estandar de Python (json, socket, subprocess, argparse)
-para poder ejecutarse dentro de nicolaka/netshoot (o cualquier VM/pod con
-python3) sin necesidad de `pip install` dentro de Domain 3.
+Only uses the Python standard library (json, socket, subprocess, argparse)
+so it can run inside nicolaka/netshoot (or any VM/pod with
+python3) without needing `pip install` inside Local cloud domain.
 
-Lee un fichero de spec (connectivity-test-spec.json), y para cada caso con
-"automatable": true intenta la conexion TCP/UDP; si falla (o siempre, en el
-caso de UDP, que no confirma entrega), ejecuta diagnosticos complementarios
-(ping, tcptraceroute/traceroute) para distinguir "host inalcanzable" de
-"puerto/servicio caido pero host vivo". Los casos domain2_to_domain3 (donde
-Domain 3 actua de servidor) se registran como pendientes de prueba manual
-desde Domain 2 -- ver README.md.
+Reads a spec file (connectivity-test-spec.json), and for each case with
+"automatable": true attempts the TCP/UDP connection; if it fails (or always,
+for UDP, which doesn't confirm delivery), runs complementary diagnostics
+(ping, tcptraceroute/traceroute) to distinguish "host unreachable" from
+"port/service down but host alive". remote_cloud_domain_to_local_cloud_domain cases
+(where Local cloud domain acts as server) are logged as pending
+manual testing from Remote cloud domain -- see README.md.
 """
 from __future__ import annotations
 
@@ -34,8 +34,8 @@ PING_COUNT = 4
 PING_TIMEOUT = 2
 TRACEROUTE_TIMEOUT = 20
 
-# Configuracion del margen ICMP de UDP (ver README, seccion 5, nota UDP).
-# Sobreescribible via --config connectivity-tests.toml, tabla [probe].
+# UDP ICMP margin configuration (see README, section 5, UDP note).
+# Overridable via --config connectivity-tests.toml, [probe] table.
 DEFAULT_PROBE_CONFIG = {
     "udp_icmp_wait_default_seconds": 0.5,
     "udp_icmp_wait_max_seconds": 2.0,
@@ -59,18 +59,18 @@ def load_probe_config(config_path: Path | None) -> dict:
 
 
 def tcp_check(ip: str, port: int) -> tuple[str, str]:
-    """Devuelve (status, detalle). status en {"connected","refused","timeout","no_route","error"}.
+    """Returns (status, detail). status in {"connected","refused","timeout","no_route","error"}.
 
-    La distincion refused/timeout/no_route es la clave del diagnostico A/B/C:
-    un rechazo inmediato (RST) prueba que el paquete llego al host y el
-    firewall lo dejo pasar (caso A); un "no route to host"/"network
-    unreachable" es un ICMP explicito de un router intermedio (distinto de un
-    timeout silencioso, aunque a efectos de veredicto siga siendo caso B/C);
-    un timeout puro no dice nada por si solo (hace falta ping/traceroute).
+    The refused/timeout/no_route distinction is the key to the A/B/C diagnosis:
+    an immediate refusal (RST) proves the packet reached the host and the
+    firewall let it through (case A); a "no route to host"/"network
+    unreachable" is an explicit ICMP from an intermediate router (different from a
+    silent timeout, though for verdict purposes it's still case B/C);
+    a plain timeout says nothing on its own (ping/traceroute is needed).
     """
     try:
         with socket.create_connection((ip, port), timeout=TCP_TIMEOUT):
-            return "connected", "conexion TCP establecida"
+            return "connected", "TCP connection established"
     except ConnectionRefusedError as e:
         return "refused", str(e)
     except (TimeoutError, socket.timeout) as e:
@@ -82,17 +82,18 @@ def tcp_check(ip: str, port: int) -> tuple[str, str]:
 
 
 def udp_send(ip: str, port: int, icmp_wait: float) -> tuple[str, str]:
-    """Devuelve (status, detalle). status en {"sent","refused","send_failed"}.
+    """Returns (status, detail). status in {"sent","refused","send_failed"}.
 
-    Usa un socket UDP "conectado" + doble envio para intentar capturar un ICMP
-    port-unreachable asincrono (en Linux se entrega en la siguiente operacion
-    sobre el socket tras el primer send, no en el propio send). Si se recibe,
-    es el equivalente UDP del caso A (rechazo => red abierta, falta el
-    listener). Si no se recibe nada, NO es concluyente: muchos firewalls
-    corporativos filtran el ICMP de vuelta aunque el trafico UDP si pase.
+    Uses a "connected" UDP socket + double send to try to capture an
+    asynchronous ICMP port-unreachable (on Linux it's delivered on the next
+    socket operation after the first send, not on the send itself). If
+    received, it's the UDP equivalent of case A (refusal => network open,
+    listener missing). If nothing is received, it is NOT conclusive: many
+    corporate firewalls filter the return ICMP even though the UDP traffic
+    does get through.
 
-    "icmp_wait" es el margen entre los dos send(), calibrado por el llamador
-    a partir del RTT medido con ping (ver compute_icmp_wait).
+    "icmp_wait" is the margin between the two send()s, calibrated by the
+    caller from the RTT measured with ping (see compute_icmp_wait).
     """
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
@@ -105,19 +106,19 @@ def udp_send(ip: str, port: int, icmp_wait: float) -> tuple[str, str]:
                 s.send(payload)
             except ConnectionRefusedError:
                 return "refused", (
-                    "ICMP port-unreachable recibido tras el envio: el host rechaza "
-                    "activamente el puerto UDP"
+                    "ICMP port-unreachable received after sending: the host actively "
+                    "refuses the UDP port"
                 )
-        return "sent", "datagrama(s) UDP enviado(s) sin error de socket (sin ICMP port-unreachable observado)"
+        return "sent", "UDP datagram(s) sent with no socket error (no ICMP port-unreachable observed)"
     except OSError as e:
-        return "send_failed", f"no se pudo enviar el datagrama UDP: {e}"
+        return "send_failed", f"could not send the UDP datagram: {e}"
 
 
 _PING_RTT_RE = re.compile(r"rtt [\w/]+ = [\d.]+/([\d.]+)/[\d.]+/[\d.]+\s*ms")
 
 
 def parse_ping_rtt(ping_output: str) -> float | None:
-    """Extrae el RTT medio (ms) de la linea final de `ping` (formato iputils)."""
+    """Extracts the mean RTT (ms) from the final line of `ping` (iputils format)."""
     m = _PING_RTT_RE.search(ping_output)
     return float(m.group(1)) if m else None
 
@@ -133,7 +134,7 @@ def compute_icmp_wait(rtt_ms: float | None, cfg: dict) -> float:
 
 def run_cmd(cmd: list[str], timeout: int) -> tuple[bool, str]:
     if shutil.which(cmd[0]) is None:
-        return False, f"herramienta '{cmd[0]}' no disponible en este entorno"
+        return False, f"tool '{cmd[0]}' not available in this environment"
     try:
         proc = subprocess.run(
             cmd, capture_output=True, text=True, timeout=timeout, check=False
@@ -141,7 +142,7 @@ def run_cmd(cmd: list[str], timeout: int) -> tuple[bool, str]:
         output = (proc.stdout or "") + (proc.stderr or "")
         return proc.returncode == 0, output.strip()
     except subprocess.TimeoutExpired:
-        return False, f"timeout tras {timeout}s ejecutando: {' '.join(cmd)}"
+        return False, f"timeout after {timeout}s running: {' '.join(cmd)}"
 
 
 def ping_check(ip: str) -> tuple[bool, str]:
@@ -161,11 +162,11 @@ _HOP_IP_RE = re.compile(r"(\d{1,3}(?:\.\d{1,3}){3})")
 
 
 def summarize_traceroute(output: str, target_ip: str) -> str:
-    """Frase con el ultimo hop que respondio y si es el destino final o no.
+    """Sentence with the last hop that responded and whether it's the final destination or not.
 
-    Best-effort: parsea el formato habitual de traceroute/tcptraceroute
-    ("N  host (ip)  tiempo..." o "N  * * *" para saltos sin respuesta). Si no
-    reconoce ningun hop, lo dice explicitamente en vez de fallar.
+    Best-effort: parses the usual traceroute/tcptraceroute format
+    ("N  host (ip)  time..." or "N  * * *" for hops with no response). If it
+    doesn't recognize any hop, it says so explicitly instead of failing.
     """
     last_hop: tuple[str, str] | None = None
     for line in output.splitlines():
@@ -174,18 +175,18 @@ def summarize_traceroute(output: str, target_ip: str) -> str:
             continue
         hop_num, rest = m.groups()
         if rest.strip().startswith("*"):
-            continue  # hop sin respuesta
+            continue  # hop with no response
         ip_m = _HOP_IP_RE.search(rest)
         if ip_m:
             last_hop = (hop_num, ip_m.group(1))
     if last_hop is None:
-        return "ningun hop respondio (todo '* * *'); no se puede saber donde se corta el camino"
+        return "no hop responded (all '* * *'); cannot tell where the path is cut off"
     hop_num, hop_ip = last_hop
     if hop_ip == target_ip:
-        return f"el trafico llega hasta el propio destino ({target_ip}) en el hop {hop_num}"
+        return f"traffic reaches the destination itself ({target_ip}) at hop {hop_num}"
     return (
-        f"el trafico llega hasta el hop {hop_num} ({hop_ip}) y no se alcanza el "
-        f"destino final ({target_ip}) -- ahi es donde hay que buscar el firewall/ruta que falta"
+        f"traffic reaches hop {hop_num} ({hop_ip}) and does not reach the "
+        f"final destination ({target_ip}) -- that's where to look for the missing firewall rule/route"
     )
 
 
@@ -194,7 +195,7 @@ def format_endpoint(test: dict) -> str:
     dst = test["destination"]
     return (
         f"{src.get('range') or src.get('description') or '?'} "
-        f"({src.get('type') or 'desconocido'}) -> "
+        f"({src.get('type') or 'unknown'}) -> "
         f"{dst['ip']}:{test['port']}/{test['protocol']} [{test['protocol_label']}]"
     )
 
@@ -211,79 +212,79 @@ def run_test(test: dict, log, cfg: dict) -> str:
         if status == "connected":
             verdict = "PASS"
         elif status == "refused":
-            # Rechazo inmediato (RST): el paquete llego al host y el firewall lo
-            # dejo pasar. Senal fuerte (caso A) -- no hace falta ping para decidir,
-            # pero se registra igualmente como contexto adicional en el log.
+            # Immediate refusal (RST): the packet reached the host and the firewall
+            # let it through. Strong signal (case A) -- ping isn't needed to decide,
+            # but it's still logged as extra context.
             ping_ok, ping_out = ping_check(ip)
-            lines.append(f"  COMPLEMENTARIO ping: {'host responde' if ping_ok else 'sin respuesta'}\n    {ping_out}")
+            lines.append(f"  COMPLEMENTARY ping: {'host responds' if ping_ok else 'no response'}\n    {ping_out}")
             verdict = "PORT_REFUSED_NETWORK_OPEN"
             lines.append(
-                "  VERDICT: PORT_REFUSED_NETWORK_OPEN - el host rechazo la conexion activamente (RST). "
-                "Prueba que la red/firewall dejan pasar el trafico hasta ese puerto (caso A); "
-                "falta el servicio, no es un problema de firewall."
+                "  VERDICT: PORT_REFUSED_NETWORK_OPEN - the host actively refused the connection (RST). "
+                "Proves the network/firewall lets traffic through to that port (case A); "
+                "the service is missing, it's not a firewall problem."
             )
-        else:  # timeout, no_route u otro error: ambiguo, hace falta ping/traceroute
+        else:  # timeout, no_route or other error: ambiguous, ping/traceroute needed
             if status == "no_route":
                 lines.append(
-                    "  NOTA: fallo explicito de enrutamiento (ICMP host/network unreachable), no un "
-                    "timeout silencioso -- un router intermedio respondio activamente."
+                    "  NOTE: explicit routing failure (ICMP host/network unreachable), not a "
+                    "silent timeout -- an intermediate router responded actively."
                 )
             ping_ok, ping_out = ping_check(ip)
-            lines.append(f"  COMPLEMENTARIO ping: {'host responde' if ping_ok else 'sin respuesta'}\n    {ping_out}")
+            lines.append(f"  COMPLEMENTARY ping: {'host responds' if ping_ok else 'no response'}\n    {ping_out}")
             trace_ok, trace_out = traceroute_check(ip, port)
-            lines.append(f"  COMPLEMENTARIO traceroute:\n    {trace_out}")
-            lines.append(f"  COMPLEMENTARIO resumen traceroute: {summarize_traceroute(trace_out, ip)}")
+            lines.append(f"  COMPLEMENTARY traceroute:\n    {trace_out}")
+            lines.append(f"  COMPLEMENTARY traceroute summary: {summarize_traceroute(trace_out, ip)}")
             if ping_ok:
                 verdict = "PORT_CLOSED_HOST_REACHABLE"
                 lines.append(
-                    "  VERDICT: PORT_CLOSED_HOST_REACHABLE - el host responde a ping pero el puerto no "
-                    "respondio ni con RST ni con datos (caso B). Senal mas debil que un rechazo explicito: "
-                    "es compatible con que el servicio aun no este desplegado, pero tambien con un firewall "
-                    "que deja pasar ICMP y bloquea selectivamente ese puerto TCP."
+                    "  VERDICT: PORT_CLOSED_HOST_REACHABLE - the host responds to ping but the port did not "
+                    "respond with either RST or data (case B). Weaker signal than an explicit refusal: "
+                    "consistent with the service not being deployed yet, but also with a firewall "
+                    "that lets ICMP through while selectively blocking that TCP port."
                 )
             else:
                 verdict = "HOST_UNREACHABLE"
                 lines.append(
-                    "  VERDICT: HOST_UNREACHABLE - ni el puerto ni el ping responden (caso C). No concluyente: "
-                    "revisar regla de firewall/ruta hacia Domain 2 (o si el host esta apagado)."
+                    "  VERDICT: HOST_UNREACHABLE - neither the port nor ping respond (case C). Inconclusive: "
+                    "check the firewall rule/route to Remote cloud domain (or whether the host is powered off)."
                 )
-    else:  # udp: primero ping (para calibrar el margen ICMP con el RTT), luego el envio
+    else:  # udp: ping first (to calibrate the ICMP margin from the RTT), then the send
         ping_ok, ping_out = ping_check(ip)
-        lines.append(f"  COMPLEMENTARIO ping: {'host responde' if ping_ok else 'sin respuesta'}\n    {ping_out}")
+        lines.append(f"  COMPLEMENTARY ping: {'host responds' if ping_ok else 'no response'}\n    {ping_out}")
         rtt_ms = parse_ping_rtt(ping_out) if ping_ok else None
         icmp_wait = compute_icmp_wait(rtt_ms, cfg)
         lines.append(
-            f"  COMPLEMENTARIO margen ICMP: {icmp_wait:.2f}s "
-            f"(calculado a partir de RTT medio de ping={rtt_ms}ms)" if rtt_ms is not None else
-            f"  COMPLEMENTARIO margen ICMP: {icmp_wait:.2f}s (valor por defecto, sin RTT disponible)"
+            f"  COMPLEMENTARY ICMP margin: {icmp_wait:.2f}s "
+            f"(computed from ping mean RTT={rtt_ms}ms)" if rtt_ms is not None else
+            f"  COMPLEMENTARY ICMP margin: {icmp_wait:.2f}s (default value, no RTT available)"
         )
         status, detail = udp_send(ip, port, icmp_wait=icmp_wait)
         lines.append(f"  RESULT: {status.upper()} - {detail}")
         if status == "refused":
             verdict = "UDP_REFUSED_NETWORK_OPEN"
             lines.append(
-                "  VERDICT: UDP_REFUSED_NETWORK_OPEN - ICMP port-unreachable recibido (equivalente UDP del "
-                "caso A). Red/firewall dejan pasar el trafico hasta ese puerto; falta el listener."
+                "  VERDICT: UDP_REFUSED_NETWORK_OPEN - ICMP port-unreachable received (UDP equivalent of "
+                "case A). Network/firewall let traffic through to that port; the listener is missing."
             )
         elif status == "sent":
             if ping_ok:
                 verdict = "UDP_SENT_HOST_REACHABLE"
                 lines.append(
-                    "  VERDICT: UDP_SENT_HOST_REACHABLE - datagrama enviado sin error y host alcanzable por "
-                    "ICMP, pero sin ICMP port-unreachable observado. NO concluyente (a diferencia de TCP): "
-                    "muchos firewalls filtran ese ICMP de vuelta aunque el UDP si pase; validar con el "
-                    "equipo receptor en Domain 2 si el paquete llego."
+                    "  VERDICT: UDP_SENT_HOST_REACHABLE - datagram sent with no error and host reachable via "
+                    "ICMP, but no ICMP port-unreachable observed. NOT conclusive (unlike TCP): "
+                    "many firewalls filter that return ICMP even though the UDP traffic does get through; "
+                    "confirm with the receiving team in Remote cloud domain whether the packet arrived."
                 )
             else:
                 verdict = "UDP_SENT_HOST_UNREACHABLE"
                 lines.append(
-                    "  VERDICT: UDP_SENT_HOST_UNREACHABLE - el envio UDP no dio error de socket, pero el host "
-                    "no responde a ping. Podria estar bloqueado por firewall o el host caido."
+                    "  VERDICT: UDP_SENT_HOST_UNREACHABLE - the UDP send did not raise a socket error, but the host "
+                    "does not respond to ping. Could be blocked by a firewall or the host could be down."
                 )
         else:
             verdict = "UDP_SEND_FAILED"
 
-    lines.append(f"  ---> VEREDICTO FINAL: {verdict}\n")
+    lines.append(f"  ---> FINAL VERDICT: {verdict}\n")
     text = "\n".join(lines)
     log.write(text + "\n")
     log.flush()
@@ -292,8 +293,8 @@ def run_test(test: dict, log, cfg: dict) -> str:
 
 def run_skipped(test: dict, log) -> str:
     header = f"[{now()}] [{test['id']}] {format_endpoint(test)}"
-    note = test.get("note", "Requiere prueba manual desde Domain 2.")
-    text = f"{header}\n  ---> VEREDICTO FINAL: SKIPPED_MANUAL_TEST_REQUIRED ({note})\n"
+    note = test.get("note", "Requires manual testing from Remote cloud domain.")
+    text = f"{header}\n  ---> FINAL VERDICT: SKIPPED_MANUAL_TEST_REQUIRED ({note})\n"
     log.write(text + "\n")
     log.flush()
     return "SKIPPED_MANUAL_TEST_REQUIRED"
@@ -301,21 +302,21 @@ def run_skipped(test: dict, log) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--spec", type=Path, required=True, help="Ruta al connectivity-test-spec.json")
-    parser.add_argument("--out", type=Path, required=True, help="Ruta del fichero de log de salida")
+    parser.add_argument("--spec", type=Path, required=True, help="Path to connectivity-test-spec.json")
+    parser.add_argument("--out", type=Path, required=True, help="Path to the output log file")
     parser.add_argument(
         "--filter-source-type",
         choices=["VM", "K8s Cluster"],
         default=None,
-        help="Solo ejecuta pruebas cuyo source.type coincida (util para separar VM vs cluster).",
+        help="Only runs tests whose source.type matches (useful for separating VM vs cluster).",
     )
     parser.add_argument(
         "--config",
         type=Path,
         default=None,
         help=(
-            "Ruta a connectivity-tests.toml (tabla [probe]) para calibrar el margen ICMP de UDP. "
-            "Si se omite o el fichero no existe, se usan los valores por defecto embebidos."
+            "Path to connectivity-tests.toml ([probe] table) to calibrate the UDP ICMP margin. "
+            "If omitted or the file doesn't exist, the embedded default values are used."
         ),
     )
     args = parser.parse_args()
@@ -332,7 +333,7 @@ def main() -> None:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     verdicts: dict[str, int] = {}
     with args.out.open("w", encoding="utf-8") as log:
-        log.write(f"# Ejecucion de pruebas de conectividad Domain 3 -> Domain 2\n# Inicio: {now()}\n\n")
+        log.write(f"# Local cloud domain -> Remote cloud domain connectivity test run\n# Start: {now()}\n\n")
         for test in tests:
             if test.get("automatable"):
                 verdict = run_test(test, log, cfg)
@@ -340,12 +341,12 @@ def main() -> None:
                 verdict = run_skipped(test, log)
             verdicts[verdict] = verdicts.get(verdict, 0) + 1
 
-        log.write("# Resumen\n")
+        log.write("# Summary\n")
         for verdict, count in sorted(verdicts.items()):
             log.write(f"#   {verdict}: {count}\n")
-        log.write(f"# Fin: {now()}\n")
+        log.write(f"# End: {now()}\n")
 
-    print(f"Log escrito en {args.out}")
+    print(f"Log written to {args.out}")
     for verdict, count in sorted(verdicts.items()):
         print(f"  {verdict}: {count}")
 

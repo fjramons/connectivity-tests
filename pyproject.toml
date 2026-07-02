@@ -1,7 +1,7 @@
 [project]
 name = "connectivity-tests"
 version = "0.1.0"
-description = "Generacion de especificaciones y manifiestos para validar conectividad Domain 2 <-> Domain 3 (EC.3)"
+description = "Generation of specifications and manifests to validate connectivity between Remote cloud domain and Local cloud domain"
 requires-python = ">=3.11"
 dependencies = [
     "pyyaml>=6.0",

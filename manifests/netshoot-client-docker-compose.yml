@@ -1,14 +1,14 @@
-# Contenedor cliente netshoot para pruebas manuales/interactivas desde una VM
-# de Domain 3 (Docker + Docker Compose ya instalados en la VM).
+# Netshoot client container for manual/interactive tests from a
+# Local cloud domain VM (Docker + Docker Compose already installed on the VM).
 #
-# `network_mode: host` hace que el trafico salga con la IP propia de la VM
-# (la IP "bien conocida" de ingress/egress descrita en el README), en vez de
-# la IP interna del contenedor.
+# `network_mode: host` makes traffic leave with the VM's own IP
+# (the "well-known" ingress/egress IP described in the README), instead of
+# the container's internal IP.
 #
-# Uso:
+# Usage:
 #   docker compose -f manifests/netshoot-client-docker-compose.yml up -d
 #   docker compose -f manifests/netshoot-client-docker-compose.yml exec netshoot bash
-#   # dentro del contenedor: nc -zv <ip> <puerto> ; curl -kv https://<ip>:<puerto> ; ping <ip> ; tcptraceroute <ip> <puerto>
+#   # inside the container: nc -zv <ip> <port> ; curl -kv https://<ip>:<port> ; ping <ip> ; tcptraceroute <ip> <port>
 services:
   netshoot:
     image: nicolaka/netshoot:v0.15
