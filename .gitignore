@@ -1,0 +1,32 @@
+# Entorno Python gestionado por uv
+.venv/
+__pycache__/
+*.py[cod]
+
+# Logs de ejecucion de pruebas (resultados de cada run, no artefactos de fuente)
+outputs/*
+!outputs/.gitkeep
+
+# Datos con topologia de red / IPs reales de Domain 2 y Domain 3: CSV de origen,
+# spec generada, y todo lo derivado de ella. Es reproducible con los scripts de
+# src/ (uv run src/generate_test_spec.py, etc.), no hace falta versionarlo.
+inputs/*
+!inputs/.gitkeep
+manifests/servers/*
+!manifests/servers/.gitkeep
+standalone/*
+!standalone/.gitkeep
+
+# Editores / SO
+.DS_Store
+.idea/
+.vscode/
+
+# Secretos / material sensible que no deberia acabar en el repo por error
+# (certificados/claves usados en pruebas mTLS, kubeconfigs, credenciales locales)
+*.pem
+*.key
+*.p12
+*.pfx
+.env
+kubeconfig*

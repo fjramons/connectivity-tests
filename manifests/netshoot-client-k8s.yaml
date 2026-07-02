@@ -1,0 +1,39 @@
+# Pod cliente persistente de netshoot para pruebas de conectividad Domain 3 -> Domain 2.
+#
+# Se aplica y se opera desde el PC de laboratorio (kubectl con acceso directo
+# al cluster). Desplegar en el MISMO namespace que los microservicios reales
+# cuya conectividad se quiere validar, para heredar la misma salida por NAT
+# Gateway / las mismas NetworkPolicies que esos microservicios.
+#
+# Uso manual interactivo:
+#   kubectl apply -f manifests/netshoot-client-k8s.yaml
+#   kubectl exec -it deploy/netshoot-client -- bash
+#   # dentro del pod: nc -zv <ip> <puerto> ; curl -kv https://<ip>:<puerto> ; ping <ip> ; tcptraceroute <ip> <puerto>
+#
+# Uso automatizado (ver src/run_via_kubectl.sh):
+#   kubectl cp src/run_probe.py deploy/netshoot-client:/tmp/run_probe.py
+#   kubectl cp inputs/connectivity-test-spec.json deploy/netshoot-client:/tmp/spec.json
+#   kubectl exec deploy/netshoot-client -- python3 /tmp/run_probe.py --spec /tmp/spec.json --out /tmp/result.log
+#   kubectl cp deploy/netshoot-client:/tmp/result.log outputs/result.log
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: netshoot-client
+  labels:
+    app: netshoot-client
+    purpose: connectivity-test-client
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: netshoot-client
+  template:
+    metadata:
+      labels:
+        app: netshoot-client
+        purpose: connectivity-test-client
+    spec:
+      containers:
+        - name: netshoot
+          image: nicolaka/netshoot:v0.15
+          command: ["sleep", "infinity"]
