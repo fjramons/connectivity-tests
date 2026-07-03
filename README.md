@@ -2,7 +2,19 @@
 
 Tools to systematically validate connectivity and the firewall rules
 open between "Remote cloud domain" and "Local cloud domain",
-based on the rule matrix in `inputs/*.csv`.
+based on the rule matrix in `inputs/<suite>/*.csv`.
+
+Multiple independent **test suites** (e.g. different firewall matrix
+versions or environments) can coexist on disk, each in its own named
+subfolder. Every command below takes a suite name via `--suite <name>`
+(or `src/run_via_kubectl.sh`'s equivalent flag), which can also be set
+once per shell session with `export TEST_SUITE=<name>` instead of
+repeating `--suite` on every command — the same value is used
+consistently everywhere (`inputs/<name>/`, `outputs/<name>/manifests/servers/`,
+`outputs/<name>/standalone/`, `outputs/<name>/logs/`, and optionally
+`inputs/<name>/connectivity-tests.toml` if that suite needs its own config
+override). A suite is always required, one way or the other. `ls inputs/`
+lists the suites that currently exist.
 
 ## The three environments
 
@@ -14,8 +26,8 @@ This project moves across three environments with very different capabilities:
 | **Lab PC** | Direct `kubectl` to the Local cloud domain clusters, and access to the jumphost (SSH) | Apply K8s manifests, run the automation against clusters, open a session to the jumphost |
 | **Jumphost / VM in Local cloud domain** | Direct access to Remote cloud domain, but transferring files is hard | Paste the self-contained script generated on the dev PC, or use Docker Compose manually |
 
-Artifacts generated on the dev PC (`inputs/connectivity-test-spec.*`,
-`manifests/`, `standalone/`) are moved to the lab PC manually via
+Artifacts generated on the dev PC (`inputs/<suite>/connectivity-test-spec.*`,
+`outputs/<suite>/manifests/servers/`, `outputs/<suite>/standalone/`) are moved to the lab PC manually via
 **OneDrive Web** (not automatable). From there:
 
 - Everything related to **K8s** (`kubectl apply` / `exec` / `cp`) runs
@@ -59,44 +71,62 @@ Prerequisites in the other environments:
 ## Repository structure
 
 ```text
-inputs/                Source CSVs + generated spec (readable YAML + JSON for the runner)
-connectivity-tests.toml  Generator config (port<->protocol pairing, target namespace)
-src/                    Scripts (generators on the dev PC, stdlib-only runner)
-manifests/              CLIENT (netshoot) and SERVER (per destination) K8s/Compose manifests
-standalone/             Self-contained script(s) to paste into the jumphost/VM
-outputs/                Run logs
+inputs/<suite>/                          Source CSVs + generated spec (readable YAML + JSON for the runner)
+inputs/<suite>/connectivity-tests.toml   Optional per-suite config override (only needed if a suite's
+                                          namespace/pairing/probe calibration differs from the generic default)
+connectivity-tests.toml                  Generic/default config, used by any suite without its own override;
+                                          gitignored -- auto-created from connectivity-tests.toml.template if missing
+connectivity-tests.toml.template         Git-tracked template for both of the above
+src/                                      Scripts (generators on the dev PC, stdlib-only runner)
+manifests/                                CLIENT (netshoot) manifests, suite-independent, always at the root
+outputs/<suite>/manifests/servers/        SERVER (per destination) K8s manifests, one subtree per suite
+outputs/<suite>/standalone/               Self-contained script(s) to paste into the jumphost/VM
+outputs/<suite>/logs/                     Run logs
 ```
 
 ## 1. Generate the test specification
 
-From the two CSVs in `inputs/`:
+From the two CSVs in `inputs/<suite>/` (put your CSVs there first — create
+the folder if the suite is new):
 
 ```bash
+uv run src/generate_test_spec.py --suite cne2.0-v0.22
+# or, with TEST_SUITE exported once per shell session:
+export TEST_SUITE=cne2.0-v0.22
 uv run src/generate_test_spec.py
 ```
 
-This generates `inputs/connectivity-test-spec.yaml` (readable, hand-editable) and its
-twin `inputs/connectivity-test-spec.json` (the one the runner actually reads,
+This generates `inputs/<suite>/connectivity-test-spec.yaml` (readable, hand-editable) and its
+twin `inputs/<suite>/connectivity-test-spec.json` (the one the runner actually reads,
 with no dependency on PyYAML inside Local cloud domain).
 
 Each CSV expands into individual test cases (one IP × one port), including
 lists (`10.2.113.129, 10.2.113.131`) and ranges (`10.180.141.99-10.180.141.105`).
 When ports and protocols have the same number of elements in a row
 (e.g. 3 ports and 3 protocols), the pairing is controlled from
-`connectivity-tests.toml` (`port_protocol_pairing`: `one_to_one` by default,
+`inputs/<suite>/connectivity-tests.toml` (`port_protocol_pairing`: `one_to_one` by default,
 or `cross_product`); it can also be forced for a single run with
 `--port-protocol-pairing cross_product`.
 
-`connectivity-tests.toml` also has a `namespace` key (`"default"` unless
-set) that `src/generate_server_manifests.py` uses to print/document the
-suggested `kubectl apply -n <namespace>` command for the server manifests
-(see section 3) — it is not embedded into the generated YAML.
+The config file also has a `namespace` key (`"default"` unless set) that
+`src/generate_server_manifests.py` uses to print/document the suggested
+`kubectl apply -n <namespace>` command for the server manifests (see
+section 3) — it is not embedded into the generated YAML.
+
+Config resolution: `inputs/<suite>/connectivity-tests.toml` if that suite
+has its own override, else the generic `connectivity-tests.toml` at the
+repo root (auto-created from the git-tracked
+`connectivity-tests.toml.template` the first time any script needs it and
+it's missing). Most suites don't need their own override — only create
+`inputs/<suite>/connectivity-tests.toml` if that suite's namespace, port/
+protocol pairing, or UDP probe calibration should differ from the generic
+default.
 
 If you edit the YAML by hand (for example, to annotate or fix a case in
 `unresolved`), resync only the JSON without re-reading the CSVs:
 
 ```bash
-uv run src/generate_test_spec.py --from-yaml
+uv run src/generate_test_spec.py --suite cne2.0-v0.22 --from-yaml
 ```
 
 Each test case indicates `direction` (`local_cloud_domain_to_remote_cloud_domain`
@@ -148,7 +178,7 @@ only to a log file.
 
   ```bash
   python3 run_probe.py tcp 10.180.141.111 443
-  python3 run_probe.py udp 10.45.66.48 1167 --config connectivity-tests.toml   # --config optional, calibrates the ICMP margin
+  python3 run_probe.py udp 10.45.66.48 1167 --config connectivity-tests.toml   # --config optional, calibrates the ICMP margin (inputs/<suite>/connectivity-tests.toml if that suite has its own override)
   ```
 
   `udp` does **not** require `ping`/ICMP to succeed: it always attempts the
@@ -263,15 +293,21 @@ test server manifest **for each unique destination** (same IP:port as
 the real app):
 
 ```bash
-uv run src/generate_server_manifests.py
-kubectl apply -f manifests/servers/<slug>-k8s.yaml -n <namespace>
+uv run src/generate_server_manifests.py --suite cne2.0-v0.22
+kubectl apply -f outputs/cne2.0-v0.22/manifests/servers/<slug>-k8s.yaml -n <namespace>
 ```
 
-`<namespace>` comes from the `namespace` key in `connectivity-tests.toml`
-(`"default"` unless set) — it is not baked into the manifest, deploy
-explicitly with `-n` for clarity; the generator also prints this same
-command with the configured namespace filled in, and each manifest's header
-comment repeats it.
+`manifests/netshoot-client-k8s.yaml` and
+`manifests/netshoot-client-docker-compose.yml` (section 2.1) are **not**
+suite-specific: they're generic client tooling with no embedded spec data,
+and always stay at the `manifests/` root regardless of which suite you're
+testing.
+
+`<namespace>` comes from the `namespace` key in the resolved config file
+(see "Config resolution" in section 1; `"default"` unless set) — it is not
+baked into the manifest, deploy explicitly with `-n` for clarity; the
+generator also prints this same command with the configured namespace
+filled in, and each manifest's header comment repeats it.
 
 Each manifest deploys the same `nicolaka/netshoot:v0.15` container acting
 as a listener (`socat`) on the exact port of the real app, with its own `Service
@@ -321,21 +357,23 @@ it reached the destination itself or not (see section 5 for the detail on how th
 
 The wait margin used in the UDP ICMP detection trick (see
 section 2.3, UDP) is computed from the RTT measured by `ping` to that
-same host, and is configurable in `connectivity-tests.toml` (`[probe]` table)
-if the default values don't fit the real Local cloud domain → Remote cloud domain latency;
-both backends below use it automatically if the file exists.
+same host, and is configurable in the resolved config file's `[probe]`
+table if the default values don't fit the real Local cloud domain →
+Remote cloud domain latency; both backends below embed/copy it
+automatically.
 
 ### K8s backend (from the lab PC)
 
 ```bash
 kubectl apply -f manifests/netshoot-client-k8s.yaml   # once
-src/run_via_kubectl.sh [namespace] [deployment-name]
+src/run_via_kubectl.sh --suite cne2.0-v0.22 [--namespace <ns>] [--deployment <name>]
 ```
 
-The script does a `kubectl cp` of `run_probe.py`, the spec, and
-`connectivity-tests.toml` (if it exists) to the pod, runs it with
+`--suite` falls back to `$TEST_SUITE` if omitted, same as the Python
+scripts. The script does a `kubectl cp` of `run_probe.py`, the spec, and
+the resolved config file (see "Config resolution" in section 1) to the pod, runs it with
 `kubectl exec ... run_probe.py batch ...`, and copies the resulting log to
-`outputs/local-cloud-domain-to-remote-cloud-domain-k8s-<timestamp>.log`.
+`outputs/<suite>/logs/local-cloud-domain-to-remote-cloud-domain-k8s-<timestamp>.log`.
 All from the lab PC, without going through the jumphost. Those copied files
 stay in the pod's `/tmp` afterward, ready for the ad hoc `list`/`tcp`/`udp`
 subcommands from section 2.2.
@@ -343,20 +381,19 @@ subcommands from section 2.2.
 ### VM/jumphost backend (self-contained script)
 
 On the dev PC, generate the script (it embeds the `run_probe.py` code,
-the spec subset with `source.type == "VM"`, and `connectivity-tests.toml`
-if it exists):
+the spec subset with `source.type == "VM"`, and the resolved config file):
 
 ```bash
-uv run src/generate_standalone_script.py
+uv run src/generate_standalone_script.py --suite cne2.0-v0.22
 ```
 
-This creates `standalone/local-cloud-domain-to-remote-cloud-domain-vm-tests.sh`. Take it
+This creates `outputs/cne2.0-v0.22/standalone/local-cloud-domain-to-remote-cloud-domain-vm-tests.sh`. Take it
 to the lab PC (OneDrive Web), open an SSH session to the jumphost/VM from there, and
 **paste the file's entire content** into the terminal (no `scp` needed: the
 script writes its own temp files locally and only needs
 Docker installed). When the batch finishes, it prints the log delimited by
 `===== LOG START =====` / `===== LOG END =====`: copy that block and
-save it as `outputs/local-cloud-domain-to-remote-cloud-domain-vm-tests-<timestamp>.log`
+save it as `outputs/cne2.0-v0.22/logs/local-cloud-domain-to-remote-cloud-domain-vm-tests-<timestamp>.log`
 on the lab PC. It then drops you into an interactive shell with
 `run_probe.py` and the spec still present at `/data`, for the ad hoc
 `list`/`tcp`/`udp` subcommands from section 2.2 — `exit` when done to clean

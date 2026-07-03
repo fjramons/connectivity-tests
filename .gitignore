@@ -3,19 +3,30 @@
 __pycache__/
 *.py[cod]
 
-# Test run logs (results of each run, not source artifacts)
+# Generated artifacts, one subtree per suite: server K8s manifests, the
+# standalone jumphost script, and run logs. All reproducible/re-runnable
+# from src/ (uv run src/generate_test_spec.py, etc.), no need to version it.
 outputs/*
 !outputs/.gitkeep
 
 # Data with real network topology / IPs of Remote cloud domain and Local cloud domain: source CSVs,
 # generated spec, and everything derived from it. Reproducible with the scripts in
 # src/ (uv run src/generate_test_spec.py, etc.), no need to version it.
-inputs/*
-!inputs/.gitkeep
-manifests/servers/*
-!manifests/servers/.gitkeep
-standalone/*
-!standalone/.gitkeep
+# Listed as specific patterns (not a blanket inputs/<suite>/* wildcard) so that
+# inputs/<suite>/connectivity-tests.toml -- which holds no topology/IP data --
+# stays git-tracked: git can't re-include a file whose parent directory is
+# itself excluded by a wildcard match.
+inputs/*.csv
+inputs/*/*.csv
+inputs/connectivity-test-spec.*
+inputs/*/connectivity-test-spec.*
+
+# Generic/default config: auto-created from the git-tracked
+# connectivity-tests.toml.template the first time any script needs it and
+# it's missing, so it doesn't need to be committed itself. The leading
+# slash anchors this to the repo root only -- inputs/<suite>/connectivity-tests.toml
+# (per-suite overrides) are NOT matched by this and stay git-tracked.
+/connectivity-tests.toml
 
 # Editors / OS
 .DS_Store

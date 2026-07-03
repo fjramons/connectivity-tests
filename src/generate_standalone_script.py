@@ -23,14 +23,45 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_SPEC = ROOT / "inputs" / "connectivity-test-spec.json"
 DEFAULT_PROBE = ROOT / "src" / "run_probe.py"
-DEFAULT_PROBE_CONFIG = ROOT / "connectivity-tests.toml"
-DEFAULT_OUT = ROOT / "standalone" / "local-cloud-domain-to-remote-cloud-domain-vm-tests.sh"
+GENERIC_CONFIG = ROOT / "connectivity-tests.toml"
+CONFIG_TEMPLATE = ROOT / "connectivity-tests.toml.template"
+SUITE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def resolve_suite(suite: str | None) -> str:
+    """Resolves --suite (or the TEST_SUITE env var) into a validated suite name."""
+    suite = suite or os.environ.get("TEST_SUITE")
+    if not suite:
+        raise SystemExit("--suite is required (or set the TEST_SUITE environment variable).")
+    if not SUITE_NAME_RE.match(suite):
+        raise SystemExit(
+            f"Invalid --suite {suite!r}: must be a plain name "
+            "(letters/digits/./-/_ only, no leading '.', no '/')."
+        )
+    return suite
+
+
+def resolve_config_path(explicit: Path | None, suite: str) -> Path:
+    """inputs/<suite>/connectivity-tests.toml if it exists, else the generic
+    connectivity-tests.toml (auto-created from connectivity-tests.toml.template
+    on first use if it doesn't exist yet)."""
+    if explicit:
+        return explicit
+    suite_config = ROOT / "inputs" / suite / "connectivity-tests.toml"
+    if suite_config.exists():
+        return suite_config
+    if not GENERIC_CONFIG.exists() and CONFIG_TEMPLATE.exists():
+        GENERIC_CONFIG.write_text(CONFIG_TEMPLATE.read_text(encoding="utf-8"), encoding="utf-8")
+        print(f"ℹ️  Created {GENERIC_CONFIG} from {CONFIG_TEMPLATE} (no {suite_config} found)")
+    return GENERIC_CONFIG
+
 
 SCRIPT_TEMPLATE = """\
 #!/usr/bin/env bash
@@ -39,9 +70,9 @@ SCRIPT_TEMPLATE = """\
 #
 # Usage: paste this whole file into the jumphost/VM terminal session
 # (or run it if it was somehow copied over), and at the end copy the log
-# printed to screen into a file inside outputs/ on the lab
+# printed to screen into a file inside {outputs_dir_display}/ on the lab
 # PC, e.g.:
-#   outputs/local-cloud-domain-to-remote-cloud-domain-vm-tests-$(date +%Y%m%dT%H%M%S).log
+#   {outputs_dir_display}/local-cloud-domain-to-remote-cloud-domain-vm-tests-$(date +%Y%m%dT%H%M%S).log
 # After the log is printed, you land inside an interactive shell with
 # run_probe.py + spec.json still available, for ad hoc single-case tests
 # (see README.md section 2.2). Type 'exit' to leave and clean up.
@@ -102,16 +133,28 @@ def build_filtered_spec(spec_path: Path, source_type: str) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--spec", type=Path, default=DEFAULT_SPEC)
+    parser.add_argument(
+        "--suite",
+        default=None,
+        help="Suite name (subfolder under inputs//outputs/; config is read from "
+        "inputs/<suite>/connectivity-tests.toml if present). Falls back to the TEST_SUITE environment variable if omitted.",
+    )
+    parser.add_argument("--spec", type=Path, default=None)
     parser.add_argument("--probe", type=Path, default=DEFAULT_PROBE)
-    parser.add_argument("--probe-config", type=Path, default=DEFAULT_PROBE_CONFIG)
-    parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
+    parser.add_argument("--probe-config", type=Path, default=None)
+    parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--source-type", default="VM", help="source.type to include (default: VM)")
     args = parser.parse_args()
 
+    suite = resolve_suite(args.suite)
+    spec = args.spec or ROOT / "inputs" / suite / "connectivity-test-spec.json"
+    probe_config_path = resolve_config_path(args.probe_config, suite)
+    out = args.out or ROOT / "outputs" / suite / "standalone" / "local-cloud-domain-to-remote-cloud-domain-vm-tests.sh"
+    outputs_dir_display = f"outputs/{suite}/logs"
+
     probe_source = args.probe.read_text(encoding="utf-8")
-    probe_config = args.probe_config.read_text(encoding="utf-8") if args.probe_config.exists() else ""
-    filtered = build_filtered_spec(args.spec, args.source_type)
+    probe_config = probe_config_path.read_text(encoding="utf-8") if probe_config_path.exists() else ""
+    filtered = build_filtered_spec(spec, args.source_type)
     spec_json = json.dumps(filtered, indent=2, ensure_ascii=False)
 
     delimiters = {
@@ -132,12 +175,13 @@ def main() -> None:
         probe_config=probe_config,
         n_tests=len(filtered["tests"]),
         source_type=args.source_type,
+        outputs_dir_display=outputs_dir_display,
     )
 
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(script, encoding="utf-8")
-    args.out.chmod(0o755)
-    print(f"✅ Generated {args.out} ({len(filtered['tests'])} tests, source.type={args.source_type})")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(script, encoding="utf-8")
+    out.chmod(0o755)
+    print(f"✅ Generated {out} ({len(filtered['tests'])} tests, source.type={args.source_type})")
 
 
 if __name__ == "__main__":

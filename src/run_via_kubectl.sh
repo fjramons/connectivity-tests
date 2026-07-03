@@ -6,24 +6,63 @@
 #
 # Usage:
 #   kubectl apply -f manifests/netshoot-client-k8s.yaml   # once
-#   src/run_via_kubectl.sh [namespace] [deployment-name]
+#   src/run_via_kubectl.sh [--suite <name>] [--namespace <ns>] [--deployment <name>]
 #
-# The resulting log is copied to outputs/local-cloud-domain-to-remote-cloud-domain-k8s-<timestamp>.log
+# --suite falls back to the TEST_SUITE environment variable if not given.
+# The resulting log is copied to outputs/<suite>/logs/local-cloud-domain-to-remote-cloud-domain-k8s-<timestamp>.log
 set -euo pipefail
 
-NAMESPACE="${1:-default}"
-DEPLOYMENT="${2:-netshoot-client}"
+SUITE="${TEST_SUITE:-}"
+NAMESPACE="default"
+DEPLOYMENT="netshoot-client"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --suite) SUITE="$2"; shift 2 ;;
+    --namespace) NAMESPACE="$2"; shift 2 ;;
+    --deployment) DEPLOYMENT="$2"; shift 2 ;;
+    -h|--help)
+      echo "Usage: $0 [--suite <name>] [--namespace <ns>] [--deployment <name>]" >&2
+      exit 0
+      ;;
+    *)
+      echo "❌ Unknown argument: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ -z "$SUITE" ]]; then
+  echo "❌ No suite given: pass --suite <name> or export TEST_SUITE." >&2
+  exit 1
+fi
+if [[ ! "$SUITE" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+  echo "❌ Invalid suite name '$SUITE': must be a plain name (letters/digits/./-/_ only)." >&2
+  exit 1
+fi
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SPEC="$ROOT_DIR/inputs/connectivity-test-spec.json"
+SPEC="$ROOT_DIR/inputs/$SUITE/connectivity-test-spec.json"
 PROBE="$ROOT_DIR/src/run_probe.py"
-PROBE_CONFIG="$ROOT_DIR/connectivity-tests.toml"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-OUT_LOG="$ROOT_DIR/outputs/local-cloud-domain-to-remote-cloud-domain-k8s-${TIMESTAMP}.log"
+OUT_LOG="$ROOT_DIR/outputs/$SUITE/logs/local-cloud-domain-to-remote-cloud-domain-k8s-${TIMESTAMP}.log"
+
+SUITE_CONFIG="$ROOT_DIR/inputs/$SUITE/connectivity-tests.toml"
+GENERIC_CONFIG="$ROOT_DIR/connectivity-tests.toml"
+CONFIG_TEMPLATE="$ROOT_DIR/connectivity-tests.toml.template"
+if [[ -f "$SUITE_CONFIG" ]]; then
+  PROBE_CONFIG="$SUITE_CONFIG"
+else
+  if [[ ! -f "$GENERIC_CONFIG" && -f "$CONFIG_TEMPLATE" ]]; then
+    cp "$CONFIG_TEMPLATE" "$GENERIC_CONFIG"
+    echo "ℹ️  Created $GENERIC_CONFIG from $CONFIG_TEMPLATE (no $SUITE_CONFIG found)" >&2
+  fi
+  PROBE_CONFIG="$GENERIC_CONFIG"
+fi
 
 if [[ ! -f "$SPEC" ]]; then
   echo "❌ $SPEC does not exist." >&2
-  echo "   Generate the spec first with: uv run src/generate_test_spec.py" >&2
+  echo "   Generate the spec first with: uv run src/generate_test_spec.py --suite $SUITE" >&2
   exit 1
 fi
 
@@ -49,7 +88,7 @@ kubectl -n "$NAMESPACE" exec "$POD" -- \
   python3 /tmp/run_probe.py batch --spec /tmp/spec.json --filter-source-type "K8s Cluster" \
     --out /tmp/result.log "${CONFIG_ARGS[@]}"
 
-mkdir -p "$ROOT_DIR/outputs"
+mkdir -p "$ROOT_DIR/outputs/$SUITE/logs"
 kubectl -n "$NAMESPACE" cp "$POD:/tmp/result.log" "$OUT_LOG"
 
 echo "✅ Log copied to $OUT_LOG" >&2

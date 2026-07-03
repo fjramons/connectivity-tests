@@ -10,31 +10,43 @@ without depending on someone in Remote cloud domain doing something. The
 `remote_cloud_domain_to_local_cloud_domain` cases require manual coordination
 with Remote cloud domain — see section 3 of `README.md`.
 
+## Suites
+
+Every test suite (e.g. a firewall matrix version) lives in its own named
+subfolder: `inputs/<suite>/connectivity-test-spec.json`,
+`outputs/<suite>/manifests/servers/`, `outputs/<suite>/standalone/`,
+`outputs/<suite>/logs/`, and optionally `inputs/<suite>/connectivity-tests.toml`
+if that suite needs a config override (most don't — they use the generic
+`connectivity-tests.toml` at the repo root). Commands below need a suite,
+via `--suite <name>` (or the equivalent flag on `run_via_kubectl.sh`) or
+by exporting `TEST_SUITE=<name>` once per shell session. `ls inputs/`
+lists the suites that currently exist on disk.
+
 ## Choosing the backend based on `source.type`
 
-Each test case in `inputs/connectivity-test-spec.json` has a
+Each test case in `inputs/<suite>/connectivity-test-spec.json` has a
 `source.type`: `"K8s Cluster"` or `"VM"`. The backend to use depends on that:
 
 - **`source.type == "K8s Cluster"`** → K8s backend, run **from the lab
   PC** (has `kubectl` with direct access to the cluster):
   ```bash
   kubectl apply -f manifests/netshoot-client-k8s.yaml   # once, if it doesn't already exist
-  src/run_via_kubectl.sh [namespace] [deployment-name]
+  src/run_via_kubectl.sh --suite <name> [--namespace <ns>] [--deployment <name>]
   ```
   The log ends up automatically at
-  `outputs/local-cloud-domain-to-remote-cloud-domain-k8s-<timestamp>.log`.
+  `outputs/<suite>/logs/local-cloud-domain-to-remote-cloud-domain-k8s-<timestamp>.log`.
 
 - **`source.type == "VM"`** → VM/jumphost backend. On the dev PC, generate
   the self-contained script (if it isn't already generated or the spec changed):
   ```bash
-  uv run src/generate_standalone_script.py
+  uv run src/generate_standalone_script.py --suite <name>
   ```
-  Take `standalone/local-cloud-domain-to-remote-cloud-domain-vm-tests.sh` to the lab PC (OneDrive
+  Take `outputs/<name>/standalone/local-cloud-domain-to-remote-cloud-domain-vm-tests.sh` to the lab PC (OneDrive
   Web), open a session to the jumphost/VM from there, and **paste the file's
   entire content** into the terminal (no file transfer needed: the script
   writes its own temp files locally and only needs Docker). Copy the
   log block delimited by `===== LOG START =====` / `===== LOG END =====`
-  into a new file in `outputs/` on the lab PC. It then drops you into an
+  into a new file in `outputs/<name>/logs/` on the lab PC. It then drops you into an
   interactive shell with `run_probe.py` + the spec already at `/data` —
   see "Ad hoc single-case tests" below.
 

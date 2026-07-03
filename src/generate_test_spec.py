@@ -11,6 +11,7 @@ import csv
 import ipaddress
 import itertools
 import json
+import os
 import re
 import sys
 import tomllib
@@ -20,10 +21,8 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_INPUTS_DIR = ROOT / "inputs"
-DEFAULT_CONFIG = ROOT / "connectivity-tests.toml"
-DEFAULT_YAML_OUT = DEFAULT_INPUTS_DIR / "connectivity-test-spec.yaml"
-DEFAULT_JSON_OUT = DEFAULT_INPUTS_DIR / "connectivity-test-spec.json"
+GENERIC_CONFIG = ROOT / "connectivity-tests.toml"
+CONFIG_TEMPLATE = ROOT / "connectivity-tests.toml.template"
 
 SERVERS_CSV_GLOB = "*Servers*.csv"
 CLIENTS_CSV_GLOB = "*Clients*.csv"
@@ -31,6 +30,35 @@ CLIENTS_CSV_GLOB = "*Clients*.csv"
 UDP_RE = re.compile(r"\budp\b", re.IGNORECASE)
 IP_RANGE_RE = re.compile(r"^(\d+\.\d+\.\d+\.\d+)\s*-\s*(\d+\.\d+\.\d+\.\d+)$")
 PORT_RANGE_RE = re.compile(r"^(\d+)\s*-\s*(\d+)$")
+SUITE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def resolve_suite(suite: str | None) -> str:
+    """Resolves --suite (or the TEST_SUITE env var) into a validated suite name."""
+    suite = suite or os.environ.get("TEST_SUITE")
+    if not suite:
+        raise SystemExit("--suite is required (or set the TEST_SUITE environment variable).")
+    if not SUITE_NAME_RE.match(suite):
+        raise SystemExit(
+            f"Invalid --suite {suite!r}: must be a plain name "
+            "(letters/digits/./-/_ only, no leading '.', no '/')."
+        )
+    return suite
+
+
+def resolve_config_path(explicit: Path | None, suite: str) -> Path:
+    """inputs/<suite>/connectivity-tests.toml if it exists, else the generic
+    connectivity-tests.toml (auto-created from connectivity-tests.toml.template
+    on first use if it doesn't exist yet)."""
+    if explicit:
+        return explicit
+    suite_config = ROOT / "inputs" / suite / "connectivity-tests.toml"
+    if suite_config.exists():
+        return suite_config
+    if not GENERIC_CONFIG.exists() and CONFIG_TEMPLATE.exists():
+        GENERIC_CONFIG.write_text(CONFIG_TEMPLATE.read_text(encoding="utf-8"), encoding="utf-8")
+        print(f"ℹ️  Created {GENERIC_CONFIG} from {CONFIG_TEMPLATE} (no {suite_config} found)")
+    return GENERIC_CONFIG
 
 
 def clean(value: str | None) -> str:
@@ -321,10 +349,17 @@ def sync_json_from_yaml(yaml_path: Path, json_path: Path) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--inputs-dir", type=Path, default=DEFAULT_INPUTS_DIR)
-    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
-    parser.add_argument("--yaml-out", type=Path, default=DEFAULT_YAML_OUT)
-    parser.add_argument("--json-out", type=Path, default=DEFAULT_JSON_OUT)
+    parser.add_argument(
+        "--suite",
+        default=None,
+        help="Suite name (subfolder under inputs/; config is read from "
+        "inputs/<suite>/connectivity-tests.toml if present). "
+        "Falls back to the TEST_SUITE environment variable if omitted.",
+    )
+    parser.add_argument("--inputs-dir", type=Path, default=None)
+    parser.add_argument("--config", type=Path, default=None)
+    parser.add_argument("--yaml-out", type=Path, default=None)
+    parser.add_argument("--json-out", type=Path, default=None)
     parser.add_argument(
         "--port-protocol-pairing",
         choices=["one_to_one", "cross_product"],
@@ -338,23 +373,29 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    suite = resolve_suite(args.suite)
+    inputs_dir = args.inputs_dir or ROOT / "inputs" / suite
+    yaml_out = args.yaml_out or inputs_dir / "connectivity-test-spec.yaml"
+    json_out = args.json_out or inputs_dir / "connectivity-test-spec.json"
+
     if args.from_yaml:
-        data = sync_json_from_yaml(args.yaml_out, args.json_out)
-        print(f"✅ Resynced {args.json_out} from {args.yaml_out} ({len(data.get('tests', []))} tests)")
+        data = sync_json_from_yaml(yaml_out, json_out)
+        print(f"✅ Resynced {json_out} from {yaml_out} ({len(data.get('tests', []))} tests)")
         return
 
-    config = load_config(args.config)
+    config_path = resolve_config_path(args.config, suite)
+    config = load_config(config_path)
     if args.port_protocol_pairing:
         config["port_protocol_pairing"] = args.port_protocol_pairing
 
-    data = generate_from_csv(args.inputs_dir, config)
-    write_outputs(data, args.yaml_out, args.json_out)
+    data = generate_from_csv(inputs_dir, config)
+    write_outputs(data, yaml_out, json_out)
 
     n_tests = len(data["tests"])
     n_auto = sum(1 for t in data["tests"] if t["automatable"])
     n_manual = n_tests - n_auto
     n_unresolved = len(data["unresolved"])
-    print(f"✅ Generated {args.yaml_out} and {args.json_out}")
+    print(f"✅ Generated {yaml_out} and {json_out}")
     print(f"    {n_tests} test cases total")
     print(f"    {n_auto} automatable (local_cloud_domain -> remote_cloud_domain)")
     print(f"    {n_manual} manual (remote_cloud_domain -> local_cloud_domain)")
