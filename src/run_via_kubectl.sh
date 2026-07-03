@@ -46,10 +46,19 @@ if [[ -f "$PROBE_CONFIG" ]]; then
 fi
 
 kubectl -n "$NAMESPACE" exec "$POD" -- \
-  python3 /tmp/run_probe.py --spec /tmp/spec.json --filter-source-type "K8s Cluster" \
+  python3 /tmp/run_probe.py batch --spec /tmp/spec.json --filter-source-type "K8s Cluster" \
     --out /tmp/result.log "${CONFIG_ARGS[@]}"
 
 mkdir -p "$ROOT_DIR/outputs"
 kubectl -n "$NAMESPACE" cp "$POD:/tmp/result.log" "$OUT_LOG"
 
 echo "✅ Log copied to $OUT_LOG" >&2
+echo "" >&2
+echo "run_probe.py, spec.json and connectivity-tests.toml are still in /tmp inside" >&2
+echo "the pod (it's a persistent Deployment, not ephemeral) -- for ad hoc single-case" >&2
+echo "tests, without re-running the whole battery, open a shell there:" >&2
+echo "  kubectl exec -it $POD -n $NAMESPACE -- bash" >&2
+echo "  python3 /tmp/run_probe.py list --spec /tmp/spec.json" >&2
+echo "  python3 /tmp/run_probe.py tcp <ip> <port>" >&2
+echo "  python3 /tmp/run_probe.py udp <ip> <port> --config /tmp/connectivity-tests.toml" >&2
+echo "See README.md section 2.2 for details." >&2

@@ -34,7 +34,32 @@ Each test case in `inputs/connectivity-test-spec.json` has a
   entire content** into the terminal (no file transfer needed: the script
   writes its own temp files locally and only needs Docker). Copy the
   log block delimited by `===== LOG START =====` / `===== LOG END =====`
-  into a new file in `outputs/` on the lab PC.
+  into a new file in `outputs/` on the lab PC. It then drops you into an
+  interactive shell with `run_probe.py` + the spec already at `/data` —
+  see "Ad hoc single-case tests" below.
+
+Both backends run `run_probe.py`'s `batch` subcommand internally (the
+original full-battery mode); its CLI also has `tcp`/`udp`/`list`
+subcommands for single-case use, see below.
+
+## Ad hoc single-case tests
+
+To spot-check a single destination without running the whole battery,
+`run_probe.py` (already copied to the pod/VM by either backend above) can
+be invoked directly, following the exact same TCP/UDP diagnosis
+methodology as `batch` but printing the full detail to the terminal:
+
+```bash
+python3 run_probe.py list --spec spec.json          # id, destination IP, port, protocol of known cases
+python3 run_probe.py tcp <ip> <port>
+python3 run_probe.py udp <ip> <port> --config connectivity-tests.toml   # --config optional
+```
+
+For K8s, these run inside the pod's persistent `/tmp` (left there by
+`run_via_kubectl.sh`); for VM/jumphost, inside the interactive shell the
+standalone script drops you into at the end. See README.md section 2.2 for
+the full explanation and section 2.3 for the low-level (raw Linux tools)
+equivalent.
 
 ## Interpreting the results
 

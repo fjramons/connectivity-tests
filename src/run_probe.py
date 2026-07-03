@@ -324,17 +324,24 @@ def run_skipped(test: dict, log) -> str:
     return "SKIPPED_MANUAL_TEST_REQUIRED"
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--spec", type=Path, required=True, help="Path to connectivity-test-spec.json")
-    parser.add_argument("--out", type=Path, required=True, help="Path to the output log file")
-    parser.add_argument(
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="run_probe.py", description=__doc__)
+    sub = parser.add_subparsers(dest="command")
+
+    p_batch = sub.add_parser(
+        "batch",
+        help="Run every automatable case in a spec file, unattended (the original full-battery mode).",
+        description="Runs every automatable case in a spec file, unattended, logging full diagnosis detail to --out.",
+    )
+    p_batch.add_argument("--spec", type=Path, required=True, help="Path to connectivity-test-spec.json")
+    p_batch.add_argument("--out", type=Path, required=True, help="Path to the output log file")
+    p_batch.add_argument(
         "--filter-source-type",
         choices=["VM", "K8s Cluster"],
         default=None,
         help="Only runs tests whose source.type matches (useful for separating VM vs cluster).",
     )
-    parser.add_argument(
+    p_batch.add_argument(
         "--config",
         type=Path,
         default=None,
@@ -343,8 +350,56 @@ def main() -> None:
             "If omitted or the file doesn't exist, the embedded default values are used."
         ),
     )
-    args = parser.parse_args()
 
+    p_list = sub.add_parser(
+        "list",
+        help="Print the known automatable test cases (destination IP, port, protocol) in a human-friendly table.",
+        description="Prints the automatable test cases from a spec file: id, destination IP, port and protocol only.",
+    )
+    p_list.add_argument("--spec", type=Path, required=True, help="Path to connectivity-test-spec.json")
+    p_list.add_argument(
+        "--filter-source-type",
+        choices=["VM", "K8s Cluster"],
+        default=None,
+        help="Only lists tests whose source.type matches.",
+    )
+
+    p_tcp = sub.add_parser(
+        "tcp",
+        help="Run a single manual TCP probe against ip:port, with the same diagnosis methodology as batch.",
+        description=(
+            "Runs a single TCP probe against ip:port by hand: attempts the connection and, if it fails, "
+            "runs the same ping/traceroute diagnosis used in batch mode, printing full detail to stdout."
+        ),
+    )
+    p_tcp.add_argument("ip", help="Destination IP address")
+    p_tcp.add_argument("port", type=int, help="Destination port")
+
+    p_udp = sub.add_parser(
+        "udp",
+        help="Run a single manual UDP probe against ip:port, with the same diagnosis methodology as batch.",
+        description=(
+            "Runs a single UDP probe against ip:port by hand: pings first (to calibrate the ICMP wait "
+            "margin), then sends the datagram twice to try to observe an ICMP port-unreachable, printing "
+            "full detail to stdout. Does not require ping/ICMP to succeed -- see README section 2.3."
+        ),
+    )
+    p_udp.add_argument("ip", help="Destination IP address")
+    p_udp.add_argument("port", type=int, help="Destination port")
+    p_udp.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help=(
+            "Path to connectivity-tests.toml ([probe] table) to calibrate the UDP ICMP margin. "
+            "If omitted or the file doesn't exist, the embedded default values are used."
+        ),
+    )
+
+    return parser
+
+
+def cmd_batch(args: argparse.Namespace) -> None:
     cfg = load_probe_config(args.config)
 
     with args.spec.open(encoding="utf-8") as f:
@@ -385,6 +440,67 @@ def main() -> None:
     for verdict, count in sorted(verdicts.items()):
         print(f"  {VERDICT_ICON.get(verdict, '?')} {verdict}: {count}")
     print()
+
+
+def cmd_list(args: argparse.Namespace) -> None:
+    with args.spec.open(encoding="utf-8") as f:
+        spec = json.load(f)
+
+    tests = [t for t in spec.get("tests", []) if t.get("automatable")]
+    if args.filter_source_type:
+        tests = [t for t in tests if t["source"].get("type") == args.filter_source_type]
+
+    if not tests:
+        print("No automatable test cases found.")
+        return
+
+    tests.sort(key=lambda t: t["id"])
+    id_w = max(len(t["id"]) for t in tests)
+    ip_w = max(len(t["destination"]["ip"]) for t in tests)
+    print(f"{'ID':<{id_w}}  {'DEST IP':<{ip_w}}  {'PORT':>5}  PROTO")
+    for t in tests:
+        print(f"{t['id']:<{id_w}}  {t['destination']['ip']:<{ip_w}}  {t['port']:>5}  {t['protocol']}")
+    print(f"\n{len(tests)} automatable test case(s).")
+
+
+def cmd_tcp(args: argparse.Namespace) -> None:
+    test = {
+        "id": "manual",
+        "direction": "local_cloud_domain_to_remote_cloud_domain",
+        "automatable": True,
+        "source": {"type": None, "range": None, "description": "manual"},
+        "destination": {"ip": args.ip},
+        "port": args.port,
+        "protocol": "tcp",
+        "protocol_label": "TCP",
+    }
+    run_test(test, sys.stdout, load_probe_config(None))
+
+
+def cmd_udp(args: argparse.Namespace) -> None:
+    test = {
+        "id": "manual",
+        "direction": "local_cloud_domain_to_remote_cloud_domain",
+        "automatable": True,
+        "source": {"type": None, "range": None, "description": "manual"},
+        "destination": {"ip": args.ip},
+        "port": args.port,
+        "protocol": "udp",
+        "protocol_label": "UDP",
+    }
+    run_test(test, sys.stdout, load_probe_config(args.config))
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+
+    if args.command is None:
+        parser.print_help()
+        sys.exit(1)
+
+    commands = {"batch": cmd_batch, "list": cmd_list, "tcp": cmd_tcp, "udp": cmd_udp}
+    commands[args.command](args)
 
 
 if __name__ == "__main__":

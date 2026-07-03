@@ -105,39 +105,154 @@ if it acts as server) and `automatable` (only `true` for
 `local_cloud_domain_to_remote_cloud_domain`, which is the only thing we can run without
 depending on someone in Remote cloud domain doing something).
 
-## 2. Launch test clients in Local cloud domain (manual)
+## 2. Manual tests as a client in Local cloud domain
 
-### On a K8s cluster
+### 2.1 Deploy the client
+
+#### On a K8s cluster
 
 ```bash
 kubectl apply -f manifests/netshoot-client-k8s.yaml -n <namespace>   # Namespace that allows privileged containers
 kubectl exec -it deploy/netshoot-client -n <namespace> -- bash
 ```
 
-Inside the pod, with the tools already included in `nicolaka/netshoot:v0.15`:
-
-```bash
-nc -zv 10.45.66.48 1167          # TCP: is the port open?
-nc -u -zv 10.45.66.48 1167       # UDP: best-effort send
-curl -kv https://10.180.141.111:443
-openssl s_client -connect 10.180.141.110:6566
-ping -c4 10.45.66.48
-tcptraceroute 10.45.66.48 1167   # port-level TCP traceroute
-```
-
-### On a VM (Docker Compose)
+#### On a VM (Docker Compose)
 
 ```bash
 docker compose -f manifests/netshoot-client-docker-compose.yml up -d
 docker compose -f manifests/netshoot-client-docker-compose.yml exec netshoot bash
 ```
 
-(same commands as above; `network_mode: host` makes traffic leave with
-the VM's own IP).
+(`network_mode: host` makes traffic leave with the VM's own IP.)
+
+Both give you a shell with the tools (`nicolaka/netshoot:v0.15`) used in 2.2
+and 2.3 below.
+
+### 2.2 High-level: `run_probe.py` subcommands (recommended)
+
+`run_probe.py` — the same engine that drives the automated battery (section
+4) — can also be invoked for a single case at a time, following the exact
+same diagnosis methodology (TCP: connect, then `ping`/`tcptraceroute` if it
+fails; UDP: `ping` first to calibrate the ICMP margin, then the double-send
+trick), but printing the full detail straight to the terminal instead of
+only to a log file.
+
+- **`list`**: prints the automatable cases known from a spec (id,
+  destination IP, port, protocol), so you know what to test:
+
+  ```bash
+  python3 run_probe.py list --spec spec.json
+  ```
+
+- **`tcp <ip> <port>`** / **`udp <ip> <port>`**: run a single case by hand:
+
+  ```bash
+  python3 run_probe.py tcp 10.180.141.111 443
+  python3 run_probe.py udp 10.45.66.48 1167 --config connectivity-tests.toml   # --config optional, calibrates the ICMP margin
+  ```
+
+  `udp` does **not** require `ping`/ICMP to succeed: it always attempts the
+  send regardless, falling back to a default wait margin if `ping` fails
+  (see the UDP note in 2.3).
+
+- `--help` works at every level: `run_probe.py --help`, `run_probe.py tcp --help`, etc.
+
+Where to find `run_probe.py` + `spec.json` already in place, without extra
+file transfers:
+
+- **K8s**: after running `src/run_via_kubectl.sh` at least once (section 4),
+  both files remain in `/tmp` inside the pod (a persistent Deployment, not
+  an ephemeral job) — `kubectl exec -it deploy/netshoot-client -n <namespace> -- bash`
+  and run the commands above against `/tmp/run_probe.py --spec /tmp/spec.json`.
+  If you haven't run the battery yet, `kubectl cp` them in yourself the same
+  way the script does.
+- **VM/jumphost**: pasting the self-contained script (section 4) already
+  ends by dropping you into an interactive shell with both files at
+  `/data` — just run the commands above there.
 
 If any of these commands fails, don't stop at "it doesn't work": section 5
 explains how to read the failure to know whether it's a firewall problem or
 simply that the Remote cloud domain service isn't deployed yet.
+
+### 2.3 Low-level: raw Linux tools
+
+Useful when `run_probe.py` isn't available in the shell you have, or you
+want to sanity-check the diagnosis independently, command by command. This
+is exactly what `run_probe.py` automates — reproducing it by hand keeps the
+tool from being a black box.
+
+#### TCP
+
+```bash
+nc -zv -w3 <ip> <port>
+# Refused (case A, strong signal): the packet reached the host and the firewall let it through -- only the service is missing.
+#   nc: connect to 127.0.0.1 port 54329 (tcp) failed: Connection refused
+# Timeout (cases B/C, no RST): says nothing on its own, keep reading below.
+#   nc: connect to 203.0.113.1 port 12345 (tcp) timed out: Operation now in progress
+
+# Alternative without nc (same "Connection refused" signal, via bash):
+bash -c 'cat < /dev/tcp/<ip>/<port>'
+```
+
+The message **"Connection refused" is always case A** (immediate refusal,
+open network): no further test is needed, only the service is missing. Any
+other outcome (timeout, "No route to host", no response) is ambiguous by
+itself, so run the complementary tests:
+
+```bash
+ping -c4 <ip>              # proves the host itself is reachable, independent of the TCP port
+tcptraceroute <ip> <port>  # traces the path AT that TCP port specifically, to see where it's cut off
+```
+
+If `ping` responds, it's case B (service probably not deployed, but a
+firewall that lets ICMP through while blocking that one TCP port can't be
+ruled out). If `ping` doesn't respond either, it's case C (inconclusive —
+suspect the firewall rule or the route). See the decision table in
+section 5.
+
+For protocols with a TLS/application layer on top, `curl -kv https://<ip>:<port>`
+or `openssl s_client -connect <ip>:<port>` go one step further than `nc`:
+they complete the TCP handshake *and* attempt the TLS handshake/HTTP
+request, useful to tell "port open but cert/app rejects it" apart from a
+plain network problem.
+
+#### UDP
+
+Unlike TCP, UDP has no handshake, so there's no direct "Connection refused"
+to look for with `nc`. The destination *can* reply with an ICMP
+*port-unreachable* when nothing is listening, but unlike TCP's RST, **many
+corporate firewalls filter that return ICMP** even though the UDP datagram
+itself gets through fine — so its absence proves nothing (it's the common
+case even with everything correctly configured); its presence, if observed,
+is as strong a signal as case A in TCP.
+
+`nc`/`bash` don't expose that ICMP reliably. Reproduce it by hand with this
+Python one-liner (the same trick `run_probe.py` uses: a "connected" UDP
+socket + double send, since on Linux the pending ICMP is delivered on the
+next socket operation, not on the first `send`):
+
+```bash
+python3 -c "
+import socket, time
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(3)
+s.connect(('<ip>', <port>)); s.send(b'probe')
+time.sleep(0.5)
+try:
+    s.send(b'probe'); print('no ICMP port-unreachable (inconclusive)')
+except ConnectionRefusedError:
+    print('ICMP port-unreachable received -> port refused, network open')
+"
+```
+
+If it prints "ICMP port-unreachable received", diagnosis done (case A). If
+not, the only thing left to check is `ping -c4 <ip>` as a weak proxy for
+host reachability (it does **not** confirm whether the UDP packet itself got
+through — ICMP echo is often filtered independently of the data port) and,
+ultimately, confirm with the receiving team in Remote cloud domain whether
+the packet arrived.
+
+See section 5 for the full decision table that combines these signals into
+a verdict.
 
 ## 3. Test servers in Local cloud domain and how to test them from Remote cloud domain
 
@@ -169,7 +284,8 @@ already reserved and authorized in the firewall, edit that manifest's `Service`
 itself includes this warning as a comment.
 
 Once deployed, ask someone in Remote cloud domain to test with
-common Linux tools:
+common Linux tools (see section 2.3 for the rationale behind each one — same
+tools, same TCP/UDP logic, just run from the Remote cloud domain side):
 
 ```bash
 nc -zv 10.11.119.182 443
@@ -204,7 +320,7 @@ a summary sentence is added indicating how far the traffic reached and whether
 it reached the destination itself or not (see section 5 for the detail on how this is interpreted).
 
 The wait margin used in the UDP ICMP detection trick (see
-section 5, UDP note) is computed from the RTT measured by `ping` to that
+section 2.3, UDP) is computed from the RTT measured by `ping` to that
 same host, and is configurable in `connectivity-tests.toml` (`[probe]` table)
 if the default values don't fit the real Local cloud domain → Remote cloud domain latency;
 both backends below use it automatically if the file exists.
@@ -217,9 +333,12 @@ src/run_via_kubectl.sh [namespace] [deployment-name]
 ```
 
 The script does a `kubectl cp` of `run_probe.py`, the spec, and
-`connectivity-tests.toml` (if it exists) to the pod, runs it with `kubectl exec`, and
-copies the resulting log to `outputs/local-cloud-domain-to-remote-cloud-domain-k8s-<timestamp>.log`.
-All from the lab PC, without going through the jumphost.
+`connectivity-tests.toml` (if it exists) to the pod, runs it with
+`kubectl exec ... run_probe.py batch ...`, and copies the resulting log to
+`outputs/local-cloud-domain-to-remote-cloud-domain-k8s-<timestamp>.log`.
+All from the lab PC, without going through the jumphost. Those copied files
+stay in the pod's `/tmp` afterward, ready for the ad hoc `list`/`tcp`/`udp`
+subcommands from section 2.2.
 
 ### VM/jumphost backend (self-contained script)
 
@@ -235,17 +354,21 @@ This creates `standalone/local-cloud-domain-to-remote-cloud-domain-vm-tests.sh`.
 to the lab PC (OneDrive Web), open an SSH session to the jumphost/VM from there, and
 **paste the file's entire content** into the terminal (no `scp` needed: the
 script writes its own temp files locally and only needs
-Docker installed). When it finishes, it prints the log delimited by
+Docker installed). When the batch finishes, it prints the log delimited by
 `===== LOG START =====` / `===== LOG END =====`: copy that block and
 save it as `outputs/local-cloud-domain-to-remote-cloud-domain-vm-tests-<timestamp>.log`
-on the lab PC.
+on the lab PC. It then drops you into an interactive shell with
+`run_probe.py` and the spec still present at `/data`, for the ad hoc
+`list`/`tcp`/`udp` subcommands from section 2.2 — `exit` when done to clean
+up the temp files.
 
 ## 5. Step-by-step manual diagnosis (no scripts)
 
 Everything `src/run_probe.py` does can be reproduced by hand with
-common Linux tools — this is intentional: the automation should not
-be a black box. This section explains how to interpret a connectivity
-failure to distinguish three situations:
+common Linux tools (section 2.3 has the exact commands and the rationale
+behind each one, both for TCP and UDP) — this is intentional: the
+automation should not be a black box. This section explains how to combine
+what you observe into a diagnosis, distinguishing three situations:
 
 - **A) The server on the other side doesn't exist, but the network is open**
   (strong signal): the TCP connection is **refused instantly**
@@ -261,25 +384,6 @@ failure to distinguish three situations:
   you can't distinguish "firewall rule not applied" from "host powered off"; the
   first reasonable suspicion is the firewall rule.
 
-### How to distinguish "refused" from "timeout" by hand (TCP)
-
-```bash
-nc -zv -w3 <ip> <port>
-# Real example of a refusal (case A):
-#   nc: connect to 127.0.0.1 port 54329 (tcp) failed: Connection refused
-# Real example of a timeout (cases B/C, no RST):
-#   nc: connect to 203.0.113.1 port 12345 (tcp) timed out: Operation now in progress
-
-# Alternative without nc (same error message, via bash):
-bash -c 'cat < /dev/tcp/<ip>/<port>'
-#   bash: connect: Connection refused        <- case A
-#   (hangs until the bash/TCP timeout, no message) <- cases B/C
-```
-
-The message **"Connection refused" is always case A** (immediate refusal,
-open network). Any other outcome (timeout, "No route to host", no
-response) requires the next step to distinguish B from C.
-
 ### Decision table
 
 | Observed signal | Conclusion | Equivalent verdict in `run_probe.py` |
@@ -289,58 +393,24 @@ response) requires the next step to distinguish B from C.
 | TCP times out, but `ping`/`tcptraceroute` reach the host | **B**: service probably missing, weaker signal than A | `PORT_CLOSED_HOST_REACHABLE` |
 | TCP times out and `ping`/`tcptraceroute` don't reach either | **C**: inconclusive / suspect the firewall | `HOST_UNREACHABLE` |
 | UDP: ICMP port-unreachable received after sending | **A** (UDP equivalent): network open, listener missing | `UDP_REFUSED_NETWORK_OPEN` |
-| UDP: sent with no observable error, `ping` OK | See UDP note — inconclusive | `UDP_SENT_HOST_REACHABLE` |
-| UDP: sent with no observable error, `ping` fails | See UDP note — inconclusive | `UDP_SENT_HOST_UNREACHABLE` |
-
-### Note on UDP
-
-Unlike TCP, UDP has no handshake: there's no direct "Connection refused".
-An equivalent exists — the destination host can respond with an
-ICMP *port-unreachable* when nothing is listening on that port — but, unlike
-TCP's `RST`, **many corporate firewalls filter that return
-ICMP** even though the UDP itself gets through fine. Because of this:
-
-- If the ICMP port-unreachable is observed, it's as strong a signal as
-  case A in TCP (`UDP_REFUSED_NETWORK_OPEN`).
-- If it's **not** observed, **it means nothing** (unlike a timeout in
-  TCP): it's simply the most common case, even with the firewall correctly
-  configured. The only option left is to use `ping` as a proxy for host reachability,
-  and ultimately confirm with the receiving team in Remote cloud domain whether the
-  packet arrived (e.g. checking Netcool logs/traces for the
-  SNMP case).
-
-`nc`/`bash` don't expose that ICMP reliably. To reproduce it by hand, use
-this Python one-liner (the same trick used by `run_probe.py`: "connected" UDP
-socket + double send, since on Linux the pending ICMP is delivered on the
-next socket operation, not on the first `send`):
-
-```bash
-python3 -c "
-import socket, time
-s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(3)
-s.connect(('<ip>', <port>)); s.send(b'probe')
-time.sleep(0.5)
-try:
-    s.send(b'probe'); print('no ICMP port-unreachable (inconclusive)')
-except ConnectionRefusedError:
-    print('ICMP port-unreachable received -> port refused, network open')
-"
-```
+| UDP: sent with no observable error, `ping` OK | See section 2.3, UDP — inconclusive | `UDP_SENT_HOST_REACHABLE` |
+| UDP: sent with no observable error, `ping` fails | See section 2.3, UDP — inconclusive | `UDP_SENT_HOST_UNREACHABLE` |
 
 ### Full manual procedure (example: Netcool UDP 1167)
 
-1. Deploy/enter the client in Local cloud domain (section 2): `kubectl exec -it
-   deploy/netshoot-client -- bash` or `docker compose ... exec netshoot bash`.
+1. Deploy/enter the client in Local cloud domain (section 2.1), and pick
+   between high-level (2.2) or low-level (2.3) tools.
 2. Attempt the connection with the tool for the corresponding protocol:
-   - TCP: `nc -zv -w3 10.180.141.111 443`
-   - UDP: the Python one-liner above, with the IP/port for the case (e.g.
-     `10.45.66.48` / `1167`).
+   - TCP: `nc -zv -w3 10.180.141.111 443` (2.3) or
+     `run_probe.py tcp 10.180.141.111 443` (2.2).
+   - UDP: the Python one-liner from 2.3, or `run_probe.py udp 10.45.66.48 1167` (2.2).
 3. If the result is "Connection refused" (TCP) or ICMP port-unreachable
    (UDP) → **case A**, diagnosis done: the service is missing, it's not the firewall.
 4. If not, `ping -c4 <ip>`.
 5. If the ping responds, `tcptraceroute <ip> <port>` (TCP) or `traceroute
    <ip>` (UDP) to confirm the path reaches the destination.
-6. Apply the decision table above with what you observed in 2-5.
+6. Apply the decision table above with what you observed in 2-5. (The 2.2
+   subcommands do steps 2-5 for you and print the resulting verdict directly.)
 
 ## Verdict interpretation
 
@@ -358,7 +428,7 @@ required).
 | ❌ `HOST_UNREACHABLE` | Neither the port nor ping respond — case C, inconclusive: check the firewall rule/route |
 | ✅ `UDP_REFUSED_NETWORK_OPEN` | ICMP port-unreachable received after the UDP send — UDP equivalent of case A |
 | ⚠️ `UDP_SENT_HOST_REACHABLE` | UDP datagram sent with no error and host responds to ping, but no ICMP observed — inconclusive, confirm with the receiving team |
-| ⚠️ `UDP_SENT_HOST_UNREACHABLE` | UDP datagram sent with no socket error, and the host doesn't respond to ping either — still inconclusive (see UDP note): ping failure alone doesn't confirm a block |
+| ⚠️ `UDP_SENT_HOST_UNREACHABLE` | UDP datagram sent with no socket error, and the host doesn't respond to ping either — still inconclusive (see section 2.3, UDP): ping failure alone doesn't confirm a block |
 | ❌ `UDP_SEND_FAILED` | Socket error while sending the UDP datagram |
 | ⏭️ `SKIPPED_MANUAL_TEST_REQUIRED` | Local cloud domain acts as server: requires someone in Remote cloud domain to test it manually (section 3) |
 

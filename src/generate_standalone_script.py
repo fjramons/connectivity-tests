@@ -11,6 +11,10 @@ The generated script:
   3. Runs the tests with `docker run --network host nicolaka/netshoot:v0.15`.
   4. Dumps the resulting log to stdout (`cat`) so the operator can copy the
      output and save it in outputs/ on the lab PC.
+  5. Drops the operator into an interactive `docker run -it` shell with
+     run_probe.py + spec.json still present at /data, to run ad hoc
+     `list`/`tcp`/`udp` subcommands (see README.md section 2.2) before the
+     temp directory is cleaned up on exit.
 
 Runs on the dev PC with `uv run src/generate_standalone_script.py`.
 Only uses the standard library.
@@ -38,6 +42,9 @@ SCRIPT_TEMPLATE = """\
 # printed to screen into a file inside outputs/ on the lab
 # PC, e.g.:
 #   outputs/local-cloud-domain-to-remote-cloud-domain-vm-tests-$(date +%Y%m%dT%H%M%S).log
+# After the log is printed, you land inside an interactive shell with
+# run_probe.py + spec.json still available, for ad hoc single-case tests
+# (see README.md section 2.2). Type 'exit' to leave and clean up.
 #
 # Requires: docker installed with network egress to Remote cloud domain (same
 # egress IP as the VM, thanks to --network host).
@@ -61,12 +68,20 @@ PROBE_TOML_EOF
 echo "Running {n_tests} connectivity tests (source.type={source_type}) via docker/netshoot..." >&2
 
 docker run --rm --network host -v "$WORKDIR:/data" nicolaka/netshoot:v0.15 \\
-  python3 /data/run_probe.py --spec /data/spec.json --config /data/connectivity-tests.toml --out /data/result.log
+  python3 /data/run_probe.py batch --spec /data/spec.json --config /data/connectivity-tests.toml --out /data/result.log
 
 echo "" >&2
 echo "===== LOG START (copy from here to the END marker into outputs/ on the lab PC) =====" >&2
 cat "$WORKDIR/result.log"
 echo "===== LOG END =====" >&2
+
+echo "" >&2
+echo "Entering an interactive shell with run_probe.py + spec.json for ad hoc tests." >&2
+echo "Examples: python3 /data/run_probe.py list --spec /data/spec.json" >&2
+echo "          python3 /data/run_probe.py tcp <ip> <port>" >&2
+echo "          python3 /data/run_probe.py udp <ip> <port> --config /data/connectivity-tests.toml" >&2
+echo "Type 'exit' to leave and clean up temp files." >&2
+docker run --rm -it --network host -v "$WORKDIR:/data" nicolaka/netshoot:v0.15 bash
 """
 
 
