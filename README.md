@@ -10,7 +10,8 @@ subfolder. Every command below takes a suite name via `--suite <name>`
 (or `src/run_via_kubectl.sh`'s equivalent flag), which can also be set
 once per shell session with `export TEST_SUITE=<name>` instead of
 repeating `--suite` on every command — the same value is used
-consistently everywhere (`inputs/<name>/`, `outputs/<name>/manifests/servers/`,
+consistently everywhere (`inputs/<name>/`,
+`outputs/<name>/manifests/servers/{local,remote}/`,
 `outputs/<name>/standalone/`, `outputs/<name>/logs/`, and optionally
 `inputs/<name>/connectivity-tests.toml` if that suite needs its own config
 override). A suite is always required, one way or the other. `ls inputs/`
@@ -27,14 +28,21 @@ This project moves across three environments with very different capabilities:
 | **Jumphost / VM in Local cloud domain** | Direct access to Remote cloud domain, but transferring files is hard | Paste the self-contained script generated on the dev PC, or use Docker Compose manually |
 
 Artifacts generated on the dev PC (`inputs/<suite>/connectivity-test-spec.*`,
-`outputs/<suite>/manifests/servers/`, `outputs/<suite>/standalone/`) are moved to the lab PC manually via
-**OneDrive Web** (not automatable). From there:
+`outputs/<suite>/manifests/servers/local/`, `outputs/<suite>/standalone/`) are
+moved to the lab PC manually via **OneDrive Web** (not automatable). From
+there:
 
 - Everything related to **K8s** (`kubectl apply` / `exec` / `cp`) runs
   directly from the lab PC.
 - Everything related to **VM/Docker** runs by opening a session to the
   jumphost and pasting the `standalone/` script there (self-contained: no
   `scp` required).
+
+`outputs/<suite>/manifests/servers/remote/` follows a different handoff:
+we have no deploy access to the Remote cloud domain cluster, so those
+manifests are instead sent (also via OneDrive Web, or whatever channel is
+already used for cross-domain handoffs) directly to the team responsible
+for that cluster, not to the lab PC.
 
 ## Prerequisites and installation (dev PC)
 
@@ -79,7 +87,10 @@ connectivity-tests.toml                  Generic/default config, used by any sui
 connectivity-tests.toml.template         Git-tracked template for both of the above
 src/                                      Scripts (generators on the dev PC, stdlib-only runner)
 manifests/                                CLIENT (netshoot) manifests, suite-independent, always at the root
-outputs/<suite>/manifests/servers/        SERVER (per destination) K8s manifests, one subtree per suite
+outputs/<suite>/manifests/servers/local/  SERVER mocks for remote_cloud_domain_to_local_cloud_domain destinations
+                                           (deploy in Local cloud domain, via kubectl from the lab PC)
+outputs/<suite>/manifests/servers/remote/ SERVER mocks for local_cloud_domain_to_remote_cloud_domain destinations
+                                           (hand off to the Remote-cloud-domain team; they deploy them)
 outputs/<suite>/standalone/               Self-contained script(s) to paste into the jumphost/VM
 outputs/<suite>/logs/                     Run logs
 ```
@@ -284,18 +295,36 @@ the packet arrived.
 See section 5 for the full decision table that combines these signals into
 a verdict.
 
-## 3. Test servers in Local cloud domain and how to test them from Remote cloud domain
+## 3. Mock test servers for destinations that don't exist yet (both directions)
 
-The `remote_cloud_domain_to_local_cloud_domain` destinations (Spotfire, Vertica/Olap DB, IAM/Keycloak,
-CMM Ingress) already belong to real apps that aren't deployed yet. To
-be able to validate the firewall without waiting for those apps to be ready, generate a
-test server manifest **for each unique destination** (same IP:port as
-the real app):
+Some destinations on both sides already belong to real apps that aren't
+deployed yet. To validate the firewall rule without waiting for those apps
+to be ready, generate a mock listener manifest **for each unique
+destination** (same IP:port as the real app) in either direction with a
+single command:
 
 ```bash
 uv run src/generate_server_manifests.py --suite cne2.0-v0.22
-kubectl apply -f outputs/cne2.0-v0.22/manifests/servers/<slug>-k8s.yaml -n <namespace>
 ```
+
+This writes `outputs/cne2.0-v0.22/manifests/servers/local/<slug>-k8s.yaml`
+(one per unique `remote_cloud_domain_to_local_cloud_domain` destination) and
+`outputs/cne2.0-v0.22/manifests/servers/remote/<slug>-k8s.yaml` (one per
+unique `local_cloud_domain_to_remote_cloud_domain` destination) in the same
+run — see 3.1 and 3.2 below for what to do with each.
+
+Both kinds of manifest deploy the same `nicolaka/netshoot:v0.15` container
+acting as a listener (`socat`) on the exact port of the real app, with its
+own `Service type: LoadBalancer` that requests the real app's IP explicitly
+(`spec.loadBalancerIP` plus the `metallb.io/loadBalancerIPs` annotation, for
+compatibility with both older and current MetalLB). **Do not deploy either
+kind together with the real app** on the same port — if a real `Service`
+already exists with that LoadBalancer IP already reserved and authorized in
+the firewall, edit the manifest's `Service` (or the real one's selector) to
+avoid a conflict; the generated YAML itself includes this warning as a
+comment. Both TCP and UDP destinations are supported (the `socat` command
+and the Service's `protocol` field switch automatically based on the
+destination's protocol).
 
 `manifests/netshoot-client-k8s.yaml` and
 `manifests/netshoot-client-docker-compose.yml` (section 2.1) are **not**
@@ -303,21 +332,22 @@ suite-specific: they're generic client tooling with no embedded spec data,
 and always stay at the `manifests/` root regardless of which suite you're
 testing.
 
+### 3.1 Servers in Local cloud domain (`servers/local/`)
+
+The `remote_cloud_domain_to_local_cloud_domain` destinations (Spotfire,
+Vertica/Olap DB, IAM/Keycloak, CMM Ingress) are real Local-cloud-domain apps
+not deployed yet, and we control the cluster they'll run on — deploy the
+generated mock directly:
+
+```bash
+kubectl apply -f outputs/cne2.0-v0.22/manifests/servers/local/<slug>-k8s.yaml -n <namespace>
+```
+
 `<namespace>` comes from the `namespace` key in the resolved config file
 (see "Config resolution" in section 1; `"default"` unless set) — it is not
 baked into the manifest, deploy explicitly with `-n` for clarity; the
 generator also prints this same command with the configured namespace
 filled in, and each manifest's header comment repeats it.
-
-Each manifest deploys the same `nicolaka/netshoot:v0.15` container acting
-as a listener (`socat`) on the exact port of the real app, with its own `Service
-type: LoadBalancer` that requests the real app's IP explicitly (`spec.loadBalancerIP`
-plus the `metallb.io/loadBalancerIPs` annotation, for compatibility with both
-older and current MetalLB). **Do not deploy it together with the real app**
-on the same port. If a real `Service` already exists with that LoadBalancer IP
-already reserved and authorized in the firewall, edit that manifest's `Service`
-(or the real one's selector) to avoid a conflict — the generated YAML
-itself includes this warning as a comment.
 
 Once deployed, ask someone in Remote cloud domain to test with
 common Linux tools (see section 2.3 for the rationale behind each one — same
@@ -337,6 +367,25 @@ misconfigured: it could be that the test service hasn't been deployed, or that
 the `Service` is using a different LoadBalancer IP than the authorized one. Section 5
 explains, step by step, how to distinguish both cases with the same
 tools (`nc`, `ping`, `traceroute`) used above.
+
+### 3.2 Servers in Remote cloud domain (`servers/remote/`)
+
+The `local_cloud_domain_to_remote_cloud_domain` destinations (e.g. Netcool
+UDP 1167) are real Remote-cloud-domain apps not deployed yet either, but
+**we have no deploy access to that cluster**. These manifests are meant to
+be **handed off** to the team responsible for the Remote-cloud-domain
+cluster (the same out-of-band channel used for other artifacts, e.g.
+OneDrive Web), for them to deploy in their own cluster. Each manifest's
+header comment says so explicitly and lists what they need to fill in
+themselves (namespace, and whatever LoadBalancer/Ingress/NodePort mechanism
+their cluster actually uses — the `Service` shown uses MetalLB only as an
+example, since we don't know their infrastructure).
+
+Once the Remote-cloud-domain team has deployed a mock, **no manual step is
+needed on our side**: this direction is already automatable, so the
+existing automated client tests (section 4) will exercise it directly from
+Local cloud domain — there's no need to ask anyone to run `nc`/`curl` by
+hand, unlike section 3.1's flow.
 
 ## 4. Automation Local cloud domain → Remote cloud domain
 

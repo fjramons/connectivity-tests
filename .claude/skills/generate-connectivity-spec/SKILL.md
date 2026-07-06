@@ -14,9 +14,10 @@ The whole regeneration flow runs on the dev PC with `uv`
 Every command below requires a suite, via `--suite <name>` or by exporting
 `TEST_SUITE=<name>` once per shell session (the flag wins if both are set).
 The same suite name resolves every path consistently: `inputs/<name>/`,
-`outputs/<name>/manifests/servers/`, `outputs/<name>/standalone/`, and
-optionally `inputs/<name>/connectivity-tests.toml` if that suite needs a
-config override (most suites don't — they use the generic
+`outputs/<name>/manifests/servers/{local,remote}/`,
+`outputs/<name>/standalone/`, and optionally
+`inputs/<name>/connectivity-tests.toml` if that suite needs a config
+override (most suites don't — they use the generic
 `connectivity-tests.toml` at the repo root). `ls inputs/` lists the
 suites that currently exist on disk.
 
@@ -46,9 +47,13 @@ suites that currently exist on disk.
    uv run src/generate_test_spec.py --suite <name> --from-yaml
    ```
 
-3. **Regenerate the server manifests** (one per unique
-   `remote_cloud_domain_to_local_cloud_domain` destination, to deploy in Local cloud
-   domain and have Remote cloud domain test them):
+3. **Regenerate the server manifests for both directions**: one per unique
+   `remote_cloud_domain_to_local_cloud_domain` destination under
+   `servers/local/` (deploy in Local cloud domain, have Remote cloud domain
+   test them — see README section 3.1), and one per unique
+   `local_cloud_domain_to_remote_cloud_domain` destination under
+   `servers/remote/` (hand off to the Remote-cloud-domain team so they
+   deploy them in their own cluster — see README section 3.2):
    ```bash
    uv run src/generate_server_manifests.py --suite <name>
    ```
@@ -60,9 +65,12 @@ suites that currently exist on disk.
    ```
 
 5. Remember that these artifacts (`inputs/<name>/connectivity-test-spec.*`,
-   `outputs/<name>/manifests/servers/`, `outputs/<name>/standalone/`) must be moved manually
-   to the lab PC via OneDrive Web — there's no automated way to do it from
-   here.
+   `outputs/<name>/manifests/servers/local/`, `outputs/<name>/standalone/`)
+   must be moved manually to the lab PC via OneDrive Web — there's no
+   automated way to do it from here. `outputs/<name>/manifests/servers/remote/`
+   follows a different path: it's handed off directly to the Remote-cloud-
+   domain team (not to the lab PC), since we have no deploy access to that
+   cluster.
 
 See `README.md` for details on each backend (K8s vs. VM/jumphost) and how
 test verdicts are interpreted.

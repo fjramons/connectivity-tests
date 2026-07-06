@@ -28,7 +28,7 @@ below).
 ```bash
 uv sync                                              # create .venv with pyyaml (only dep)
 uv run src/generate_test_spec.py --suite NAME         # CSV -> inputs/NAME/connectivity-test-spec.{yaml,json}
-uv run src/generate_server_manifests.py --suite NAME  # spec -> outputs/NAME/manifests/servers/<slug>-k8s.yaml (one per unique destination)
+uv run src/generate_server_manifests.py --suite NAME  # spec -> outputs/NAME/manifests/servers/local/<slug>-k8s.yaml + .../remote/<slug>-k8s.yaml (one per unique destination, per direction)
 uv run src/generate_standalone_script.py --suite NAME # spec + run_probe.py -> outputs/NAME/standalone/*.sh (self-contained, for the jumphost)
 uv run python3 -m py_compile src/*.py                 # syntax-check all Python scripts
 bash -n <script>.sh                                   # syntax-check generated/hand-written shell scripts
@@ -54,7 +54,13 @@ across all four entry points:
 
 - `inputs/<name>/` (source CSVs and the generated spec,
   `connectivity-test-spec.{yaml,json}`)
-- `outputs/<name>/manifests/servers/` (generated K8s server manifests)
+- `outputs/<name>/manifests/servers/local/` (mock listeners for
+  `remote_cloud_domain_to_local_cloud_domain` destinations — Local-cloud-
+  domain-owned, deployed there directly via `kubectl`)
+- `outputs/<name>/manifests/servers/remote/` (mock listeners for
+  `local_cloud_domain_to_remote_cloud_domain` destinations — Remote-cloud-
+  domain-owned; we have no deploy access there, so these are handed off to
+  the Remote-cloud-domain team instead)
 - `outputs/<name>/standalone/` (the self-contained jumphost script)
 - `outputs/<name>/logs/` (run logs)
 - optionally `inputs/<name>/connectivity-tests.toml` (suite-specific config
