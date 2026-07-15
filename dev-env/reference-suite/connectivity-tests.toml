@@ -1,0 +1,20 @@
+# connectivity-tests.toml override for the "dev-local" suite (see
+# dev-env/reference-suite/NOTES.md). Kept minimal -- same defaults as
+# connectivity-tests.toml.template except namespace, documented here for
+# clarity since dev-env/cluster.sh applies manifests/netshoot-client-k8s.yaml
+# into that same namespace.
+port_protocol_pairing = "one_to_one"
+namespace = "default"
+
+# The vendored MetalLB release dev-env/cluster.sh installs
+# (dev-env/kind/vendor/metallb-native.yaml) rejects a Service that sets
+# both spec.loadBalancerIP and the metallb.io/loadBalancerIPs annotation --
+# "annotation" is its current documented mechanism. Real suites may need
+# "both" or "spec_field" instead, depending on what MetalLB version is
+# actually deployed there -- see connectivity-tests.toml.template.
+metallb_ip_mechanism = "annotation"
+
+[probe]
+udp_icmp_wait_default_seconds = 0.5
+udp_icmp_wait_max_seconds = 2.0
+udp_icmp_wait_rtt_multiplier = 4

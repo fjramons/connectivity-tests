@@ -17,6 +17,21 @@ port_protocol_pairing = "one_to_one"
 # deploy command.
 namespace = "default"
 
+# How generate_server_manifests.py requests a specific IP for the generated
+# LoadBalancer Services from MetalLB. Current MetalLB releases reject a
+# Service that sets BOTH mechanisms at once ("service can not have both
+# metallb.io/loadBalancerIPs and svc.Spec.LoadBalancerIP"); older releases
+# needed one or the other depending on version. Pick whichever your
+# cluster's MetalLB needs (or override per-run with --metallb-ip-mechanism):
+#   - "both":       sets both spec.loadBalancerIP and the annotation (legacy
+#                   default, kept for existing suites -- may fail on recent
+#                   MetalLB, see above)
+#   - "annotation": metallb.io/loadBalancerIPs only (MetalLB's current
+#                   documented mechanism)
+#   - "spec_field": spec.loadBalancerIP only (plain Kubernetes field,
+#                   understood by MetalLB and most other LB controllers)
+metallb_ip_mechanism = "both"
+
 # Configuration for the probe engine (src/run_probe.py), used only if invoked
 # with --config connectivity-tests.<suite>.toml (otherwise it uses these same
 # values as an embedded default, so it can keep running standalone).

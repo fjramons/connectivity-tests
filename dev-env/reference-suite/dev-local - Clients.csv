@@ -1,0 +1,9 @@
+Source Location,Source Range,Source Type,Source Description,Destination Location,Destination Range,Destination Description,Port Number / Range,Protocol,Service,Comments
+Dev laptop,n/a (kind pod),K8s Cluster,dev-env netshoot-client pod,Dev laptop (fake Remote),__DEV_ENV_TARGET_OPEN__,target-open (something listening),5201,tcp,dev-env synthetic,Expected verdict: PASS
+Dev laptop,n/a (emulated VM),VM,dev-env emulated VM container,Dev laptop (fake Remote),__DEV_ENV_TARGET_OPEN__,target-open (something listening),5202,udp,dev-env synthetic,Expected verdict: UDP_SENT_HOST_REACHABLE
+Dev laptop,n/a (kind pod),K8s Cluster,dev-env netshoot-client pod,Dev laptop (fake Remote),__DEV_ENV_TARGET_REFUSED__,target-refused (nothing listening),5301,tcp,dev-env synthetic,Expected verdict: PORT_REFUSED_NETWORK_OPEN
+Dev laptop,n/a (emulated VM),VM,dev-env emulated VM container,Dev laptop (fake Remote),__DEV_ENV_TARGET_REFUSED__,target-refused (nothing listening),5302,udp,dev-env synthetic,Expected verdict: UDP_REFUSED_NETWORK_OPEN
+Dev laptop,n/a (kind pod),K8s Cluster,dev-env netshoot-client pod,Dev laptop (fake Remote),__DEV_ENV_TARGET_FILTERED__,target-filtered (port dropped by iptables),5401,tcp,dev-env synthetic,Expected verdict: PORT_CLOSED_HOST_REACHABLE
+Dev laptop,n/a (emulated VM),VM,dev-env emulated VM container,Dev laptop (fake Remote),__DEV_ENV_TARGET_FILTERED__,target-filtered (port dropped by iptables),5402,udp,dev-env synthetic,Expected verdict: UDP_SENT_HOST_REACHABLE
+Dev laptop,n/a (kind pod),K8s Cluster,dev-env netshoot-client pod,Dev laptop (fake Remote),__DEV_ENV_TARGET_UNREACHABLE__,unassigned address (no container),5501,tcp,dev-env synthetic,Expected verdict: HOST_UNREACHABLE
+Dev laptop,n/a (emulated VM),VM,dev-env emulated VM container,Dev laptop (fake Remote),__DEV_ENV_TARGET_UNREACHABLE__,unassigned address (no container),5502,udp,dev-env synthetic,Expected verdict: UDP_SENT_HOST_UNREACHABLE

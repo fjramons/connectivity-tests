@@ -70,7 +70,13 @@ for that cluster, not to the lab PC.
   ```
 
 - Docker (optional, only if you want to test the `nicolaka/netshoot:v0.15`
-  image locally before taking it to Local cloud domain).
+  image locally before taking it to Local cloud domain -- also used by the
+  local dev environment below).
+
+If you want to validate changes end-to-end locally (a real K8s cluster
+with `LoadBalancer` Services, and a VM/jumphost stand-in) instead of only
+generating artifacts, see "Local development environment" further down —
+it needs `kind`, `kubectl`, and `docker compose` in addition to the above.
 
 Prerequisites in the other environments:
 
@@ -98,6 +104,9 @@ outputs/<suite>/manifests/servers/remote/ SERVER mocks for local_cloud_domain_to
 outputs/<suite>/standalone/               Self-contained script(s) to paste into the jumphost/VM
 outputs/<suite>/logs/                     Run logs: one .log + structured .json per run, plus the
                                            consolidated summary-report.{txt,html} (section 6)
+dev-env/                                  Local K8s cluster + VM emulation for development (see
+                                           "Local development environment" below); dev-env/reference-suite/
+                                           is the git-tracked synthetic test plan synced into inputs/dev-local/
 ```
 
 ## 1. Generate the test specification
@@ -549,6 +558,156 @@ interpretation" below), the report adds one status of its own,
 `.json` file yet — distinct from `SKIPPED_MANUAL_TEST_REQUIRED`, which
 means the test genuinely can't be automated (Local cloud domain acts as
 server, see section 3).
+
+## Local development environment
+
+The Dev PC has no network access to either Local cloud domain or Remote
+cloud domain (see "The three environments" above), so validating a change
+end-to-end normally requires the real Lab PC and jumphost. `dev-env/`
+emulates both physical capabilities **locally**, entirely inside Docker,
+so features can be exercised realistically while developing:
+
+- a local Kubernetes cluster with real `LoadBalancer` Services (`kind` +
+  MetalLB), standing in for the Lab PC's cluster;
+- a local VM/jumphost stand-in, standing in for the Remote-cloud-domain-
+  reachable jumphost.
+
+**Important — this validates tooling, not real firewall rules.** kind's
+default CNI enforces no NetworkPolicies and there's no corporate firewall
+in the loop. A `PASS` here proves the generators/manifests/kubectl/
+`run_probe.py` flow works correctly end-to-end, not that a real firewall
+rule is open in Local cloud domain or Remote cloud domain.
+
+### Prerequisites (one-time, manual — nothing here installs anything for you)
+
+- [`kind`](https://kind.sigs.k8s.io/docs/user/quick-start/#installation)
+- [`kubectl`](https://kubernetes.io/docs/tasks/tools/#kubectl)
+- Docker with the `docker compose` v2 plugin (same Docker as above)
+
+Every `dev-env/*.sh` script checks for these upfront and stops with clear
+instructions if something is missing — none of them ever run an install
+command on your behalf, and none of them touch `~/.kube/config` or any
+other system/user kubeconfig (see below).
+
+### `dev-env/` layout
+
+```text
+dev-env/validate.sh                     Combined orchestration: run/down/status the whole pipeline in one command
+dev-env/cluster.sh                      Local K8s cluster lifecycle (kind + MetalLB): up/down/status
+dev-env/vm.sh                           Local VM/jumphost lifecycle (emulated container): up/down/status
+dev-env/targets.sh                      Fake "Remote cloud domain" destination containers: up/down/status
+dev-env/run-vm-tests.sh                 Runs the VM-sourced tests against the emulated VM (docker cp/exec)
+dev-env/suite.sh                        Syncs dev-env/reference-suite/ -> inputs/dev-local/ (sync subcommand)
+dev-env/env.sh                          `source` this to point your shell's kubectl at the local cluster
+dev-env/kind/                           kind cluster config + vendored MetalLB manifest + IPAddressPool template
+dev-env/compose/                        docker-compose file for the fake Remote-cloud-domain targets
+dev-env/reference-suite/                Git-tracked synthetic test plan (see below) -- synced into inputs/dev-local/
+```
+
+### Kubeconfig isolation
+
+`kind`/`kubectl` calls made by `dev-env/cluster.sh` use an isolated
+`KUBECONFIG` (`dev-env/.kubeconfig`, gitignored) — your real kubeconfig is
+never read or written. To make your *own* shell's `kubectl` (and
+`src/run_via_kubectl.sh`, which relies on the ambient kubectl context)
+target the local cluster too, run:
+
+```bash
+source dev-env/env.sh
+```
+
+This only affects the current shell session; open a new one (or `unset
+KUBECONFIG`) to go back to whatever you had configured before.
+
+### Quick start
+
+`dev-env/validate.sh` composes everything below into one command (see the
+`validate-with-local-dev-env` skill for the full walkthrough):
+
+```bash
+dev-env/validate.sh run            # brings up cluster+targets+VM, syncs the suite, generates,
+                                    # applies, runs both K8s- and VM-sourced tests, reports
+cat outputs/dev-local/logs/summary-report.txt
+
+# ...iterate on your change, re-run `dev-env/validate.sh run` as many times as needed...
+
+dev-env/validate.sh down           # only once the development being validated is actually done
+```
+
+`--only k8s`/`--only vm` restrict this to just one path (e.g. `--only vm`
+needs no K8s cluster at all when you're only iterating on `run_probe.py`).
+`dev-env/validate.sh status` shows the combined state of everything.
+
+Equivalent manual sequence, useful when debugging a single step (each
+piece is independently documented in the `create-local-k8s-cluster` and
+`create-local-vm` skills):
+
+```bash
+dev-env/cluster.sh up          # kind cluster + MetalLB + netshoot-client pod
+dev-env/targets.sh up          # fake Remote-cloud-domain target containers
+dev-env/vm.sh up               # emulated VM/jumphost container
+dev-env/suite.sh sync          # copies dev-env/reference-suite/ -> inputs/dev-local/ with real local IPs
+
+source dev-env/env.sh
+uv run src/generate_test_spec.py --suite dev-local
+uv run src/generate_server_manifests.py --suite dev-local
+kubectl apply -f outputs/dev-local/manifests/servers/local/ -n default
+
+src/run_via_kubectl.sh --suite dev-local      # runs the K8s-Cluster-sourced cases
+dev-env/run-vm-tests.sh --suite dev-local     # runs the VM-sourced cases (or the real standalone script)
+
+uv run src/generate_report.py --suite dev-local
+cat outputs/dev-local/logs/summary-report.txt
+
+dev-env/vm.sh down
+dev-env/targets.sh down
+dev-env/cluster.sh down
+```
+
+Each `up` is idempotent; each `down` is the exact inverse. Add `-y`/`--yes`
+to auto-confirm cleanup if provisioning fails partway through — by
+default you're asked interactively (default "no"), so a partial failure
+can be inspected/debugged instead of silently destroyed. Infra is meant to
+stay up for the length of a development session (re-running `validate.sh
+run` is cheap once it's up): bring it up when you start, tear it down
+explicitly once you're done, not after every single run.
+
+### The `dev-local` synthetic reference suite
+
+`dev-env/reference-suite/` is a small, git-tracked test plan (same CSV
+columns as a real suite, IPs replaced with placeholder tokens) designed to
+exercise every automatable verdict plus the manual/skipped case, across
+both source types (`K8s Cluster` and `VM`) and both protocols. See
+`dev-env/reference-suite/NOTES.md` for exactly which row produces which
+verdict and how the placeholder tokens map to addresses on your machine.
+It's synced (never hand-edited in place) into `inputs/dev-local/` — edit
+`dev-env/reference-suite/` and re-run `dev-env/suite.sh sync` instead.
+
+### Known limitations
+
+- **Shared `kind` docker network**: `kind` uses one docker network named
+  `kind`, shared by every kind cluster on the machine, not just this
+  project's. `dev-env/cluster.sh` discovers its actual subnet rather than
+  assuming one, so this works even if you already use kind elsewhere — but
+  the network itself is only removed once no kind cluster remains at all.
+- **`--network host` on Docker Desktop/WSL2**: the "real" VM validation
+  mode (running the generated standalone script directly, see the
+  `create-local-vm` skill) depends on `--network host` sharing the actual
+  host network stack, which has had inconsistent support under Docker
+  Desktop's WSL2 integration. The "emulated" mode (`dev-env/vm.sh`) doesn't
+  have this dependency.
+- **Not a substitute for the real firewall validation** — see the warning
+  at the top of this section.
+- **`dev-env/validate.sh run --only vm` still creates the shared `kind`
+  docker network** even though no K8s cluster is created — the fake
+  Remote-cloud-domain targets need it for both modes. `dev-env/targets.sh`
+  creates it itself if missing (see `ensure_kind_network()` in
+  `dev-env/lib/common.sh`); a later `dev-env/cluster.sh up` reuses the same
+  network rather than conflicting with it.
+
+See the `validate-with-local-dev-env` skill for the combined orchestration
+(`dev-env/validate.sh`), and `create-local-k8s-cluster`/`create-local-vm`
+for detailed, step-by-step guidance on each half of this.
 
 ## Verdict interpretation
 

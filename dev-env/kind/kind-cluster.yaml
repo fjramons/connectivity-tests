@@ -1,0 +1,7 @@
+# Single-node kind cluster emulating the "Local cloud domain K8s cluster"
+# for local development (see README.md "Local development environment").
+# Default CNI (kindnet) is kept -- MetalLB's L2 mode works fine on top of it.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane

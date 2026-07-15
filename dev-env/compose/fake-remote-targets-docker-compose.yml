@@ -1,0 +1,50 @@
+# Fake "Remote cloud domain" destinations for local development -- plain
+# Docker containers (not K8s: Remote-cloud-domain isn't necessarily K8s and
+# we have no deploy access there in real life either) joined to the same
+# "kind" docker network as the dev-env cluster, so both K8s-Cluster-sourced
+# and VM-sourced automated tests can reach them. ${DEV_ENV_SUBNET_PREFIX} is
+# substituted by dev-env/targets.sh (docker compose reads it from a
+# generated .env file next to this one) -- see dev-env/lib/common.sh
+# discover_subnet_prefix() for where that prefix comes from.
+#
+# Matches dev-env/reference-suite/NOTES.md's offsets:
+#   .210 target-open      TCP 5201 / UDP 5202 -- something is listening
+#   .211 target-refused   TCP 5301 / UDP 5302 -- nothing listening (kernel RST/ICMP)
+#   .212 target-filtered  TCP 5401 / UDP 5402 -- listening port dropped by iptables
+#   .230 (no container)                        -- HOST_UNREACHABLE case
+services:
+  target-open:
+    image: nicolaka/netshoot:v0.15
+    command: >
+      sh -c "socat -v TCP-LISTEN:5201,fork,reuseaddr EXEC:'/bin/cat' &
+             socat -v UDP-LISTEN:5202,fork,reuseaddr EXEC:'/bin/cat' &
+             wait"
+    networks:
+      kind:
+        ipv4_address: ${DEV_ENV_SUBNET_PREFIX}.210
+    restart: unless-stopped
+
+  target-refused:
+    image: nicolaka/netshoot:v0.15
+    command: ["sleep", "infinity"]
+    networks:
+      kind:
+        ipv4_address: ${DEV_ENV_SUBNET_PREFIX}.211
+    restart: unless-stopped
+
+  target-filtered:
+    image: nicolaka/netshoot:v0.15
+    cap_add:
+      - NET_ADMIN # container-scoped only, dies with the container -- never touches the host
+    command: >
+      sh -c "iptables -A INPUT -p tcp --dport 5401 -j DROP &&
+             iptables -A INPUT -p udp --dport 5402 -j DROP &&
+             sleep infinity"
+    networks:
+      kind:
+        ipv4_address: ${DEV_ENV_SUBNET_PREFIX}.212
+    restart: unless-stopped
+
+networks:
+  kind:
+    external: true

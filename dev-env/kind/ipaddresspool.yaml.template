@@ -1,0 +1,21 @@
+# MetalLB pool for the dev-env kind cluster. ${DEV_ENV_SUBNET_PREFIX} is
+# substituted at bring-up time by dev-env/cluster.sh (envsubst) with the
+# discovered <first-two-octets>.255 slice of the "kind" docker network --
+# see discover_subnet_prefix() in dev-env/lib/common.sh for why.
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: dev-env-pool
+  namespace: metallb-system
+spec:
+  addresses:
+    - ${DEV_ENV_SUBNET_PREFIX}.200-${DEV_ENV_SUBNET_PREFIX}.209
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: dev-env-l2
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - dev-env-pool

@@ -144,7 +144,16 @@ expansion; the top-level `namespace` key (default `"default"`) is used by
 `generate_server_manifests.py` only to print/document the suggested
 `kubectl apply -n <namespace>` deploy command — it is never baked into the
 generated YAML's `metadata`, deploying with an explicit `-n` is preferred
-for clarity; the `[probe]` table configures `run_probe.py`'s UDP-ICMP-wait
+for clarity; the top-level `metallb_ip_mechanism` key (default `"both"`,
+also overridable per-run with `--metallb-ip-mechanism`) controls whether
+`generate_server_manifests.py`'s generated Service sets
+`spec.loadBalancerIP`, the `metallb.io/loadBalancerIPs` annotation, or both
+— current MetalLB releases reject a Service with both set at once, older
+ones needed one or the other depending on version, so this is
+suite-configurable rather than hardcoded (see
+`connectivity-tests.toml.template` and `dev-env/reference-suite/
+connectivity-tests.toml` for a suite that needs `"annotation"`); the
+`[probe]` table configures `run_probe.py`'s UDP-ICMP-wait
 calibration (via `--config`, optional — falls back to embedded defaults if
 absent, so `run_probe.py` keeps working standalone). `run_probe.py` itself
 takes `--config` as a plain path with no suite awareness — the caller
@@ -268,6 +277,42 @@ There's no test suite; verification is done by running things directly
 - After touching `src/suite_common.py`, re-run all four generators against
   an existing suite to confirm the shared suite/config resolution behaves
   identically (same error messages for an invalid/nonexistent suite).
+- For changes to `src/generate_server_manifests.py`, `src/run_via_kubectl.sh`,
+  `src/run_probe.py`, or `src/generate_standalone_script.py`, prefer
+  exercising them against the real thing rather than only the scratch
+  fixtures above: `dev-env/` (see below) stands up a real local K8s cluster
+  and VM stand-in with real `LoadBalancer` Services and real TCP/UDP
+  refusal/timeout behavior, using the git-tracked `dev-env/reference-suite/`
+  synced into the `dev-local` suite.
+
+## Local development environment (`dev-env/`)
+
+`dev-env/` is developer-only tooling — not a test framework, doesn't
+change the "no test suite" statement above — that emulates the two
+physical capabilities described in "Three physical environments" (a K8s
+cluster with `LoadBalancer` Services, and a VM/jumphost) locally, entirely
+in Docker, so changes can be validated end-to-end without the real Lab
+PC/jumphost. `dev-env/cluster.sh` (kind + MetalLB) and `dev-env/vm.sh`
+(emulated VM container) are independent, separately-testable capabilities;
+`dev-env/targets.sh` (fake Remote-cloud-domain destinations) and
+`dev-env/suite.sh` (syncs the git-tracked `dev-env/reference-suite/` into
+`inputs/dev-local/`) support both. Every `kind`/`kubectl` call here uses an
+isolated `KUBECONFIG` (`dev-env/.kubeconfig`, gitignored) — it never reads
+or writes `~/.kube/config` or any other system/user kubeconfig; see
+`dev-env/env.sh` to point your own shell's `kubectl` at it too. See
+README.md "Local development environment" for full usage, and note its
+important caveat: this validates the tooling, not real firewall rules —
+kind enforces no NetworkPolicies.
+
+`dev-env/validate.sh` composes all of the above (bring up whatever
+`--only k8s`/`vm`/`both` needs, sync the suite, regenerate spec/manifests,
+apply, run both automated test paths via `src/run_via_kubectl.sh` and the
+new `dev-env/run-vm-tests.sh`, regenerate the report) into one `run`/
+`down`/`status` command, so validating a change doesn't require manually
+re-sequencing the individual scripts. `run` deliberately leaves everything
+running afterwards (iterative development, not one-shot CI) — only `down`
+tears it down, and `run` always prints that exact command as a closing
+reminder.
 
 ## Project skills
 
@@ -275,3 +320,9 @@ There's no test suite; verification is done by running things directly
   standalone script after CSV or spec changes.
 - `.claude/skills/run-local-cloud-domain-connectivity-tests` — pick the right backend
   (kubectl vs. standalone script) per test case and interpret results.
+- `.claude/skills/create-local-k8s-cluster` — bring up/tear down the local
+  kind + MetalLB cluster (`dev-env/cluster.sh`).
+- `.claude/skills/create-local-vm` — bring up/tear down the local VM/jumphost
+  stand-in (`dev-env/vm.sh`), real or emulated.
+- `.claude/skills/validate-with-local-dev-env` — run the whole pipeline
+  end-to-end in one command (`dev-env/validate.sh`).

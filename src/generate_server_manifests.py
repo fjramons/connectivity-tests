@@ -80,14 +80,9 @@ metadata:
   labels:
     app: {app_label}
     purpose: connectivity-test-server
-  annotations:
-    # Current MetalLB annotation (kept alongside spec.loadBalancerIP below
-    # for compatibility with older MetalLB releases / other LB controllers).
-    metallb.io/loadBalancerIPs: "{ip}"
-spec:
+{service_annotations}spec:
   type: LoadBalancer
-  loadBalancerIP: {ip}
-  selector:
+{service_loadbalancer_ip}  selector:
     app: {app_label}
   ports:
     - name: {app_label}
@@ -111,10 +106,12 @@ REMOTE_MANIFEST_TEMPLATE = """\
 #   - namespace: none is set here (we don't know the target namespace) --
 #     add "-n <namespace>" (or a "namespace:" field) matching their cluster.
 #   - Service type / LoadBalancer mechanism: the Service below shows a
-#     MetalLB-style example (spec.loadBalancerIP + the
-#     metallb.io/loadBalancerIPs annotation) purely as an illustration --
-#     replace it with whatever LoadBalancer/Ingress/NodePort mechanism
-#     their cluster actually uses to expose {ip}:{port} externally.
+#     MetalLB-style example (spec.loadBalancerIP and/or the
+#     metallb.io/loadBalancerIPs annotation, per this suite's
+#     metallb_ip_mechanism config -- see connectivity-tests.toml) purely as
+#     an illustration -- replace it with whatever LoadBalancer/Ingress/
+#     NodePort mechanism their cluster actually uses to expose {ip}:{port}
+#     externally.
 #   - If a real Service already exists with this IP already reserved and
 #     authorized in the firewall, adjust that Service's "selector" to
 #     point to "app: {app_label}" instead of applying the Service below.
@@ -155,14 +152,9 @@ metadata:
   labels:
     app: {app_label}
     purpose: connectivity-test-server
-  annotations:
-    # Example only -- MetalLB shown here, replace with whatever LoadBalancer/
-    # Ingress/NodePort mechanism the Remote cloud domain cluster actually uses.
-    metallb.io/loadBalancerIPs: "{ip}"
-spec:
+{service_annotations}spec:
   type: LoadBalancer
-  loadBalancerIP: {ip}
-  selector:
+{service_loadbalancer_ip}  selector:
     app: {app_label}
   ports:
     - name: {app_label}
@@ -172,12 +164,35 @@ spec:
 """
 
 
+METALLB_IP_MECHANISMS = ("both", "annotation", "spec_field")
+
+
 def load_config(config_path: Path) -> dict:
-    defaults = {"namespace": "default"}
+    defaults = {"namespace": "default", "metallb_ip_mechanism": "both"}
     if config_path.exists():
         with config_path.open("rb") as f:
             defaults.update(tomllib.load(f))
     return defaults
+
+
+def build_service_ip_fields(ip: str, mechanism: str) -> tuple[str, str]:
+    """Returns the (possibly empty) "annotations:" block and "loadBalancerIP:"
+    line for the Service, per metallb_ip_mechanism -- current MetalLB releases
+    reject a Service that sets both spec.loadBalancerIP and the
+    metallb.io/loadBalancerIPs annotation at once ("service can not have
+    both"), while older releases needed one or the other depending on
+    version, hence this being configurable rather than hardcoded."""
+    if mechanism not in METALLB_IP_MECHANISMS:
+        raise SystemExit(
+            f"❌ Invalid metallb_ip_mechanism {mechanism!r}: must be one of {METALLB_IP_MECHANISMS}."
+        )
+    annotations = ""
+    if mechanism in ("both", "annotation"):
+        annotations = f'  annotations:\n    metallb.io/loadBalancerIPs: "{ip}"\n'
+    loadbalancer_ip = ""
+    if mechanism in ("both", "spec_field"):
+        loadbalancer_ip = f"  loadBalancerIP: {ip}\n"
+    return annotations, loadbalancer_ip
 
 
 def load_tests(spec_path: Path, suite: str) -> list[dict]:
@@ -218,9 +233,10 @@ def slugify(ip: str, port: int) -> str:
     return f"conntest-{ip.replace('.', '-')}-{port}"
 
 
-def render_local_manifest(entry: dict, namespace: str, deploy_dir_display: str) -> str:
+def render_local_manifest(entry: dict, namespace: str, deploy_dir_display: str, mechanism: str) -> str:
     app_label = slugify(entry["ip"], entry["port"])
     protocol = entry["protocol"]
+    annotations, loadbalancer_ip = build_service_ip_fields(entry["ip"], mechanism)
     return LOCAL_MANIFEST_TEMPLATE.format(
         ip=entry["ip"],
         port=entry["port"],
@@ -233,12 +249,15 @@ def render_local_manifest(entry: dict, namespace: str, deploy_dir_display: str) 
         socat_proto="UDP" if protocol == "udp" else "TCP",
         k8s_proto="UDP" if protocol == "udp" else "TCP",
         origin_summary=", ".join(entry["origins"]),
+        service_annotations=annotations,
+        service_loadbalancer_ip=loadbalancer_ip,
     )
 
 
-def render_remote_manifest(entry: dict) -> str:
+def render_remote_manifest(entry: dict, mechanism: str) -> str:
     app_label = slugify(entry["ip"], entry["port"])
     protocol = entry["protocol"]
+    annotations, loadbalancer_ip = build_service_ip_fields(entry["ip"], mechanism)
     return REMOTE_MANIFEST_TEMPLATE.format(
         ip=entry["ip"],
         port=entry["port"],
@@ -248,6 +267,8 @@ def render_remote_manifest(entry: dict) -> str:
         socat_proto="UDP" if protocol == "udp" else "TCP",
         k8s_proto="UDP" if protocol == "udp" else "TCP",
         origin_summary=", ".join(entry["origins"]),
+        service_annotations=annotations,
+        service_loadbalancer_ip=loadbalancer_ip,
     )
 
 
@@ -284,6 +305,15 @@ def main() -> None:
         help="Base 'servers' directory; local/ and remote/ subfolders are created under it.",
     )
     parser.add_argument("--config", type=Path, default=None)
+    parser.add_argument(
+        "--metallb-ip-mechanism",
+        choices=METALLB_IP_MECHANISMS,
+        default=None,
+        help="Overrides connectivity-tests.toml's metallb_ip_mechanism for this run "
+        "(current MetalLB releases reject a Service that sets both spec.loadBalancerIP "
+        "and the metallb.io/loadBalancerIPs annotation; older releases needed one or the "
+        "other depending on version -- pick whichever your target cluster's MetalLB needs).",
+    )
     args = parser.parse_args()
 
     suite = resolve_suite(args.suite)
@@ -297,6 +327,7 @@ def main() -> None:
 
     config = load_config(config_path)
     namespace = config.get("namespace", "default")
+    mechanism = args.metallb_ip_mechanism or config.get("metallb_ip_mechanism", "both")
 
     tests = load_tests(spec, suite)
     local_destinations = unique_destinations(tests, "remote_cloud_domain_to_local_cloud_domain")
@@ -308,11 +339,16 @@ def main() -> None:
     write_manifests(
         local_destinations,
         local_out_dir,
-        lambda entry: render_local_manifest(entry, namespace, local_deploy_dir_display),
+        lambda entry: render_local_manifest(entry, namespace, local_deploy_dir_display, mechanism),
     )
-    write_manifests(remote_destinations, remote_out_dir, render_remote_manifest)
+    write_manifests(
+        remote_destinations,
+        remote_out_dir,
+        lambda entry: render_remote_manifest(entry, mechanism),
+    )
 
     print()
+    print(f"ℹ️  metallb_ip_mechanism: {mechanism}")
     print(f"✅ Generated {len(local_destinations)} local server manifests in {local_out_dir}")
     print("    (mocks for remote_cloud_domain_to_local_cloud_domain destinations)")
     print(f"    Deploy each with: kubectl apply -f {local_deploy_dir_display}/<file> -n {namespace}")
