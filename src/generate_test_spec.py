@@ -34,16 +34,33 @@ SUITE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 def resolve_suite(suite: str | None) -> str:
-    """Resolves --suite (or the TEST_SUITE env var) into a validated suite name."""
+    """Resolves --suite (or the TEST_SUITE env var) into a validated suite name,
+    falling back to "default" if neither is given."""
     suite = suite or os.environ.get("TEST_SUITE")
     if not suite:
-        raise SystemExit("--suite is required (or set the TEST_SUITE environment variable).")
+        suite = "default"
+        print(f"ℹ️  No --suite/TEST_SUITE given: using suite '{suite}'.")
     if not SUITE_NAME_RE.match(suite):
         raise SystemExit(
             f"Invalid --suite {suite!r}: must be a plain name "
             "(letters/digits/./-/_ only, no leading '.', no '/')."
         )
     return suite
+
+
+def check_suite_exists(suite: str) -> None:
+    suite_dir = ROOT / "inputs" / suite
+    if not suite_dir.is_dir():
+        existing = sorted(
+            p.name for p in (ROOT / "inputs").iterdir()
+            if p.is_dir() and not p.name.startswith(".")
+        )
+        raise SystemExit(
+            f"❌ Suite '{suite}' not found: {suite_dir} does not exist.\n"
+            f"   Existing suites: {', '.join(existing) or '(none yet)'}\n"
+            f"   Create {suite_dir}/ with your CSVs, or pick an existing "
+            "suite with --suite <name> / export TEST_SUITE=<name>."
+        )
 
 
 def resolve_config_path(explicit: Path | None, suite: str) -> Path:
@@ -290,7 +307,12 @@ def parse_clients_csv(path: Path, pairing_mode: str, unresolved: list[dict], cou
 def find_csv(inputs_dir: Path, pattern: str) -> Path:
     matches = sorted(inputs_dir.glob(pattern))
     if not matches:
-        raise SystemExit(f"No CSV matching {pattern!r} was found in {inputs_dir}")
+        raise SystemExit(
+            f"❌ No CSV matching {pattern!r} was found in {inputs_dir}.\n"
+            "   If this suite hasn't been set up yet, add your CSVs there, "
+            "or pick an existing suite with --suite <name> / "
+            "export TEST_SUITE=<name>."
+        )
     return matches[0]
 
 
@@ -354,7 +376,8 @@ def main() -> None:
         default=None,
         help="Suite name (subfolder under inputs/; config is read from "
         "inputs/<suite>/connectivity-tests.toml if present). "
-        "Falls back to the TEST_SUITE environment variable if omitted.",
+        "Falls back to the TEST_SUITE environment variable, and finally to "
+        "the 'default' suite, if omitted.",
     )
     parser.add_argument("--inputs-dir", type=Path, default=None)
     parser.add_argument("--config", type=Path, default=None)
@@ -374,6 +397,8 @@ def main() -> None:
     args = parser.parse_args()
 
     suite = resolve_suite(args.suite)
+    if args.inputs_dir is None:
+        check_suite_exists(suite)
     inputs_dir = args.inputs_dir or ROOT / "inputs" / suite
     yaml_out = args.yaml_out or inputs_dir / "connectivity-test-spec.yaml"
     json_out = args.json_out or inputs_dir / "connectivity-test-spec.json"

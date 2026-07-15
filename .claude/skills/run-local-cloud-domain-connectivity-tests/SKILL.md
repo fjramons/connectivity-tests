@@ -17,10 +17,12 @@ subfolder: `inputs/<suite>/connectivity-test-spec.json`,
 `outputs/<suite>/manifests/servers/`, `outputs/<suite>/standalone/`,
 `outputs/<suite>/logs/`, and optionally `inputs/<suite>/connectivity-tests.toml`
 if that suite needs a config override (most don't — they use the generic
-`connectivity-tests.toml` at the repo root). Commands below need a suite,
+`connectivity-tests.toml` at the repo root). Commands below use a suite,
 via `--suite <name>` (or the equivalent flag on `run_via_kubectl.sh`) or
-by exporting `TEST_SUITE=<name>` once per shell session. `ls inputs/`
-lists the suites that currently exist on disk.
+by exporting `TEST_SUITE=<name>` once per shell session; if neither is
+given, the `default` suite (`inputs/default/`) is used automatically, with
+a printed notice. `ls inputs/` lists the suites that currently exist on
+disk.
 
 ## Choosing the backend based on `source.type`
 

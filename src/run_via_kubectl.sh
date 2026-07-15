@@ -8,7 +8,8 @@
 #   kubectl apply -f manifests/netshoot-client-k8s.yaml   # once
 #   src/run_via_kubectl.sh [--suite <name>] [--namespace <ns>] [--deployment <name>]
 #
-# --suite falls back to the TEST_SUITE environment variable if not given.
+# --suite falls back to the TEST_SUITE environment variable, and finally to
+# the "default" suite, if neither is given.
 # The resulting log is copied to outputs/<suite>/logs/local-cloud-domain-to-remote-cloud-domain-k8s-<timestamp>.log
 set -euo pipefail
 
@@ -33,8 +34,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$SUITE" ]]; then
-  echo "❌ No suite given: pass --suite <name> or export TEST_SUITE." >&2
-  exit 1
+  SUITE="default"
+  echo "ℹ️  No --suite/TEST_SUITE given: using suite '$SUITE'." >&2
 fi
 if [[ ! "$SUITE" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
   echo "❌ Invalid suite name '$SUITE': must be a plain name (letters/digits/./-/_ only)." >&2
@@ -42,6 +43,15 @@ if [[ ! "$SUITE" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
 fi
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SUITE_DIR="$ROOT_DIR/inputs/$SUITE"
+if [[ ! -d "$SUITE_DIR" ]]; then
+  EXISTING="$(find "$ROOT_DIR/inputs" -mindepth 1 -maxdepth 1 -type d ! -name '.*' -printf '%f\n' | sort | paste -sd ', ' -)"
+  echo "❌ Suite '$SUITE' not found: $SUITE_DIR does not exist." >&2
+  echo "   Existing suites: ${EXISTING:-(none yet)}" >&2
+  echo "   Create $SUITE_DIR/ with your CSVs, or pick an existing suite with" >&2
+  echo "   --suite <name> / export TEST_SUITE=<name>." >&2
+  exit 1
+fi
 SPEC="$ROOT_DIR/inputs/$SUITE/connectivity-test-spec.json"
 PROBE="$ROOT_DIR/src/run_probe.py"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"

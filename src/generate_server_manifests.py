@@ -38,16 +38,33 @@ SUITE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 def resolve_suite(suite: str | None) -> str:
-    """Resolves --suite (or the TEST_SUITE env var) into a validated suite name."""
+    """Resolves --suite (or the TEST_SUITE env var) into a validated suite name,
+    falling back to "default" if neither is given."""
     suite = suite or os.environ.get("TEST_SUITE")
     if not suite:
-        raise SystemExit("--suite is required (or set the TEST_SUITE environment variable).")
+        suite = "default"
+        print(f"ℹ️  No --suite/TEST_SUITE given: using suite '{suite}'.")
     if not SUITE_NAME_RE.match(suite):
         raise SystemExit(
             f"Invalid --suite {suite!r}: must be a plain name "
             "(letters/digits/./-/_ only, no leading '.', no '/')."
         )
     return suite
+
+
+def check_suite_exists(suite: str) -> None:
+    suite_dir = ROOT / "inputs" / suite
+    if not suite_dir.is_dir():
+        existing = sorted(
+            p.name for p in (ROOT / "inputs").iterdir()
+            if p.is_dir() and not p.name.startswith(".")
+        )
+        raise SystemExit(
+            f"❌ Suite '{suite}' not found: {suite_dir} does not exist.\n"
+            f"   Existing suites: {', '.join(existing) or '(none yet)'}\n"
+            f"   Create {suite_dir}/ with your CSVs, or pick an existing "
+            "suite with --suite <name> / export TEST_SUITE=<name>."
+        )
 
 
 def resolve_config_path(explicit: Path | None, suite: str) -> Path:
@@ -213,7 +230,13 @@ def load_config(config_path: Path) -> dict:
     return defaults
 
 
-def load_tests(spec_path: Path) -> list[dict]:
+def load_tests(spec_path: Path, suite: str) -> list[dict]:
+    if not spec_path.exists():
+        raise SystemExit(
+            f"❌ Spec not found: {spec_path}\n"
+            "   Generate it first with: uv run src/generate_test_spec.py "
+            f"--suite {suite}"
+        )
     with spec_path.open(encoding="utf-8") as f:
         spec = json.load(f)
     return spec.get("tests", [])
@@ -300,7 +323,8 @@ def main() -> None:
         "--suite",
         default=None,
         help="Suite name (subfolder under inputs//outputs/; config is read from "
-        "inputs/<suite>/connectivity-tests.toml if present). Falls back to the TEST_SUITE environment variable if omitted.",
+        "inputs/<suite>/connectivity-tests.toml if present). Falls back to the "
+        "TEST_SUITE environment variable, and finally to the 'default' suite, if omitted.",
     )
     parser.add_argument("--spec", type=Path, default=None)
     parser.add_argument(
@@ -313,6 +337,8 @@ def main() -> None:
     args = parser.parse_args()
 
     suite = resolve_suite(args.suite)
+    if args.spec is None:
+        check_suite_exists(suite)
     spec = args.spec or ROOT / "inputs" / suite / "connectivity-test-spec.json"
     out_dir = args.out_dir or ROOT / "outputs" / suite / "manifests" / "servers"
     local_out_dir = out_dir / "local"
@@ -322,7 +348,7 @@ def main() -> None:
     config = load_config(config_path)
     namespace = config.get("namespace", "default")
 
-    tests = load_tests(spec)
+    tests = load_tests(spec, suite)
     local_destinations = unique_destinations(tests, "remote_cloud_domain_to_local_cloud_domain")
     remote_destinations = unique_destinations(tests, "local_cloud_domain_to_remote_cloud_domain")
 

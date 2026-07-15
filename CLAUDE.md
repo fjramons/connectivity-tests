@@ -46,11 +46,15 @@ where only the stdlib is available — see "Two execution tiers" below.
 ## Suites
 
 Every entry point (`generate_test_spec.py`, `generate_server_manifests.py`,
-`generate_standalone_script.py`, `run_via_kubectl.sh`) requires a suite
-name, resolved as: explicit `--suite <name>` flag, else the `TEST_SUITE`
-environment variable, else a hard error — there is no flat/suite-less
-fallback. The same suite name is reused, unchanged, to resolve every path
-across all four entry points:
+`generate_standalone_script.py`, `run_via_kubectl.sh`) resolves a suite
+name as: explicit `--suite <name>` flag, else the `TEST_SUITE` environment
+variable, else the `default` suite (`inputs/default/`), printed as an `ℹ️`
+notice so a run never silently lands in the wrong suite unnoticed. If the
+resolved suite's `inputs/<name>/` folder doesn't exist, every entry point
+fails fast with a clear error listing the suites that do exist and how to
+pick one — no entry point ever operates against a nonexistent suite. The
+same suite name is reused, unchanged, to resolve every path across all
+four entry points:
 
 - `inputs/<name>/` (source CSVs and the generated spec,
   `connectivity-test-spec.{yaml,json}`)

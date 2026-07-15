@@ -14,8 +14,12 @@ consistently everywhere (`inputs/<name>/`,
 `outputs/<name>/manifests/servers/{local,remote}/`,
 `outputs/<name>/standalone/`, `outputs/<name>/logs/`, and optionally
 `inputs/<name>/connectivity-tests.toml` if that suite needs its own config
-override). A suite is always required, one way or the other. `ls inputs/`
-lists the suites that currently exist.
+override). If neither `--suite` nor `TEST_SUITE` is given, the `default`
+suite (`inputs/default/`) is used automatically, with a printed notice —
+so a stray or forgotten `--suite` doesn't silently point at some other
+suite unnoticed. If the resolved suite's `inputs/<name>/` folder doesn't
+exist, every command fails fast with a clear error listing the suites
+that do exist. `ls inputs/` lists the suites that currently exist.
 
 ## The three environments
 

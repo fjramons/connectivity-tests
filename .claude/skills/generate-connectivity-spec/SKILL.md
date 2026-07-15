@@ -11,9 +11,11 @@ The whole regeneration flow runs on the dev PC with `uv`
 
 ## Suites
 
-Every command below requires a suite, via `--suite <name>` or by exporting
-`TEST_SUITE=<name>` once per shell session (the flag wins if both are set).
-The same suite name resolves every path consistently: `inputs/<name>/`,
+Every command below uses a suite, via `--suite <name>` or by exporting
+`TEST_SUITE=<name>` once per shell session (the flag wins if both are set);
+if neither is given, the `default` suite (`inputs/default/`) is used
+automatically, with a printed notice. The same suite name resolves every
+path consistently: `inputs/<name>/`,
 `outputs/<name>/manifests/servers/{local,remote}/`,
 `outputs/<name>/standalone/`, and optionally
 `inputs/<name>/connectivity-tests.toml` if that suite needs a config
