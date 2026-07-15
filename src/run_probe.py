@@ -56,6 +56,31 @@ VERDICT_ICON = {
     "SKIPPED_MANUAL_TEST_REQUIRED": "⏭️",
 }
 
+# Short diagnostic-nuance phrase for the report's "comment" column, shown
+# only for the weak/inconclusive verdicts (case B/C). Deliberately not the
+# CSV business `comments`/`service` field from the spec -- this explains
+# *why* the verdict is ambiguous, not what the test is for. Verdicts absent
+# from this dict (PASS, *_REFUSED_NETWORK_OPEN, UDP_SEND_FAILED,
+# SKIPPED_MANUAL_TEST_REQUIRED) get no comment.
+VERDICT_COMMENT = {
+    "PORT_CLOSED_HOST_REACHABLE": (
+        "host answers ping but the port didn't respond -- could be the service "
+        "not deployed yet, or a firewall selectively filtering just that port"
+    ),
+    "HOST_UNREACHABLE": (
+        "ping also failed -- could be a firewall block or the host being down, "
+        "cannot tell which from here"
+    ),
+    "UDP_SENT_HOST_REACHABLE": (
+        "no ICMP port-unreachable observed and host answers ping -- UDP delivery "
+        "not confirmed, check with the receiving team in Remote cloud domain"
+    ),
+    "UDP_SENT_HOST_UNREACHABLE": (
+        "no ICMP observed and ping also failed -- still not conclusive for UDP, "
+        "could be a firewall block or the host being down"
+    ),
+}
+
 _NO_ROUTE_ERRNOS = {errno.EHOSTUNREACH, errno.ENETUNREACH}
 
 
@@ -146,29 +171,29 @@ def compute_icmp_wait(rtt_ms: float | None, cfg: dict) -> float:
     return min(max_wait, max(default_wait, scaled))
 
 
-def run_cmd(cmd: list[str], timeout: int) -> tuple[bool, str]:
+def run_cmd(cmd: list[str], timeout: int) -> tuple[bool, str, list[str]]:
     if shutil.which(cmd[0]) is None:
-        return False, f"tool '{cmd[0]}' not available in this environment"
+        return False, f"tool '{cmd[0]}' not available in this environment", cmd
     try:
         proc = subprocess.run(
             cmd, capture_output=True, text=True, timeout=timeout, check=False
         )
         output = (proc.stdout or "") + (proc.stderr or "")
-        return proc.returncode == 0, output.strip()
+        return proc.returncode == 0, output.strip(), cmd
     except subprocess.TimeoutExpired:
-        return False, f"timeout after {timeout}s running: {' '.join(cmd)}"
+        return False, f"timeout after {timeout}s running: {' '.join(cmd)}", cmd
 
 
-def ping_check(ip: str) -> tuple[bool, str]:
+def ping_check(ip: str) -> tuple[bool, str, list[str]]:
     return run_cmd(["ping", "-c", str(PING_COUNT), "-W", str(PING_TIMEOUT), ip], timeout=PING_COUNT * PING_TIMEOUT + 5)
 
 
-def traceroute_check(ip: str, port: int | None) -> tuple[bool, str]:
+def traceroute_check(ip: str, port: int | None) -> tuple[bool, str, list[str]]:
     if port and shutil.which("tcptraceroute"):
-        ok, out = run_cmd(["tcptraceroute", "-m", "15", ip, str(port)], timeout=TRACEROUTE_TIMEOUT)
-        return ok, f"tcptraceroute:\n{out}"
-    ok, out = run_cmd(["traceroute", "-w", "2", "-m", "15", ip], timeout=TRACEROUTE_TIMEOUT)
-    return ok, f"traceroute:\n{out}"
+        ok, out, cmd = run_cmd(["tcptraceroute", "-m", "15", ip, str(port)], timeout=TRACEROUTE_TIMEOUT)
+        return ok, f"tcptraceroute:\n{out}", cmd
+    ok, out, cmd = run_cmd(["traceroute", "-w", "2", "-m", "15", ip], timeout=TRACEROUTE_TIMEOUT)
+    return ok, f"traceroute:\n{out}", cmd
 
 
 _HOP_LINE_RE = re.compile(r"^\s*(\d+)\s+(.*)$")
@@ -214,13 +239,43 @@ def format_endpoint(test: dict) -> str:
     )
 
 
-def run_test(test: dict, log, cfg: dict) -> str:
+def format_tcp_command(ip: str, port: int) -> str:
+    """Human-readable line documenting the exact parameters of the raw-socket
+    TCP check (there's no real subprocess argv to show, since tcp_check()
+    uses socket.create_connection() directly, not a CLI tool)."""
+    return (
+        f"TCP_CONNECT ip={ip} port={port} timeout={TCP_TIMEOUT}s "
+        f"(python socket.create_connection; roughly equivalent to: nc -zv -w {TCP_TIMEOUT} {ip} {port})"
+    )
+
+
+def format_udp_command(ip: str, port: int, icmp_wait: float) -> str:
+    """Same idea as format_tcp_command() for the raw-socket UDP send in
+    udp_send() (connect() + double send(), no real subprocess argv)."""
+    return (
+        f"UDP_SEND ip={ip} port={port} timeout={UDP_TIMEOUT}s icmp_wait={icmp_wait:.2f}s "
+        f"(python connect()+send() x2; roughly equivalent to: nc -u -zv -w {UDP_TIMEOUT} {ip} {port})"
+    )
+
+
+def format_cmd_line(argv: list[str]) -> str:
+    return " ".join(argv)
+
+
+def run_test(test: dict, log, cfg: dict) -> tuple[str, dict]:
     ip = test["destination"]["ip"]
     port = test["port"]
-    header = f"[{now()}] [{test['id']}] {format_endpoint(test)}"
+    started_at = now()
+    header = f"[{started_at}] [{test['id']}] {format_endpoint(test)}"
     lines = [header]
+    commands: list[dict] = []
+
+    def log_command(tool: str, display: str, argv: list[str] | None = None) -> None:
+        commands.append({"tool": tool, "argv": argv, "display": display})
+        lines.append(f"  COMMAND: {display}")
 
     if test["protocol"] == "tcp":
+        log_command("tcp_connect", format_tcp_command(ip, port))
         status, detail = tcp_check(ip, port)
         lines.append(f"  RESULT: {status.upper()} - {detail}")
         print(f"    RESULT: {status.upper()} - {detail}", flush=True)
@@ -231,7 +286,8 @@ def run_test(test: dict, log, cfg: dict) -> str:
             # let it through. Strong signal (case A) -- ping isn't needed to decide,
             # but it's still logged as extra context.
             print("    · ping...", flush=True)
-            ping_ok, ping_out = ping_check(ip)
+            ping_ok, ping_out, ping_argv = ping_check(ip)
+            log_command("ping", format_cmd_line(ping_argv), ping_argv)
             lines.append(f"  COMPLEMENTARY ping: {'host responds' if ping_ok else 'no response'}\n    {ping_out}")
             verdict = "PORT_REFUSED_NETWORK_OPEN"
             lines.append(
@@ -246,10 +302,12 @@ def run_test(test: dict, log, cfg: dict) -> str:
                     "silent timeout -- an intermediate router responded actively."
                 )
             print("    · ping...", flush=True)
-            ping_ok, ping_out = ping_check(ip)
+            ping_ok, ping_out, ping_argv = ping_check(ip)
+            log_command("ping", format_cmd_line(ping_argv), ping_argv)
             lines.append(f"  COMPLEMENTARY ping: {'host responds' if ping_ok else 'no response'}\n    {ping_out}")
             print("    · traceroute (up to 20s)...", flush=True)
-            trace_ok, trace_out = traceroute_check(ip, port)
+            trace_ok, trace_out, trace_argv = traceroute_check(ip, port)
+            log_command("traceroute", format_cmd_line(trace_argv), trace_argv)
             lines.append(f"  COMPLEMENTARY traceroute:\n    {trace_out}")
             lines.append(f"  COMPLEMENTARY traceroute summary: {summarize_traceroute(trace_out, ip)}")
             if ping_ok:
@@ -268,7 +326,8 @@ def run_test(test: dict, log, cfg: dict) -> str:
                 )
     else:  # udp: ping first (to calibrate the ICMP margin from the RTT), then the send
         print("    · ping...", flush=True)
-        ping_ok, ping_out = ping_check(ip)
+        ping_ok, ping_out, ping_argv = ping_check(ip)
+        log_command("ping", format_cmd_line(ping_argv), ping_argv)
         lines.append(f"  COMPLEMENTARY ping: {'host responds' if ping_ok else 'no response'}\n    {ping_out}")
         rtt_ms = parse_ping_rtt(ping_out) if ping_ok else None
         icmp_wait = compute_icmp_wait(rtt_ms, cfg)
@@ -277,6 +336,7 @@ def run_test(test: dict, log, cfg: dict) -> str:
             f"(computed from ping mean RTT={rtt_ms}ms)" if rtt_ms is not None else
             f"  COMPLEMENTARY ICMP margin: {icmp_wait:.2f}s (default value, no RTT available)"
         )
+        log_command("udp_send", format_udp_command(ip, port, icmp_wait))
         status, detail = udp_send(ip, port, icmp_wait=icmp_wait)
         lines.append(f"  RESULT: {status.upper()} - {detail}")
         print(f"    RESULT: {status.upper()} - {detail}", flush=True)
@@ -307,21 +367,62 @@ def run_test(test: dict, log, cfg: dict) -> str:
         else:
             verdict = "UDP_SEND_FAILED"
 
-    lines.append(f"  ---> FINAL VERDICT: {VERDICT_ICON.get(verdict, '?')} {verdict}\n")
+    icon = VERDICT_ICON.get(verdict, "?")
+    lines.append(f"  ---> FINAL VERDICT: {icon} {verdict}\n")
     text = "\n".join(lines)
     log.write(text + "\n")
     log.flush()
-    return verdict
+
+    record = {
+        "id": test["id"],
+        "direction": test["direction"],
+        "automatable": test["automatable"],
+        "source": test["source"],
+        "destination": test["destination"],
+        "port": test["port"],
+        "protocol": test["protocol"],
+        "protocol_label": test["protocol_label"],
+        "service": test.get("service"),
+        "started_at": started_at,
+        "finished_at": now(),
+        "verdict": verdict,
+        "verdict_icon": icon,
+        "comment": VERDICT_COMMENT.get(verdict),
+        "commands": commands,
+        "detail": text,
+    }
+    return verdict, record
 
 
-def run_skipped(test: dict, log) -> str:
-    header = f"[{now()}] [{test['id']}] {format_endpoint(test)}"
+def run_skipped(test: dict, log) -> tuple[str, dict]:
+    started_at = now()
+    header = f"[{started_at}] [{test['id']}] {format_endpoint(test)}"
     note = test.get("note", "Requires manual testing from Remote cloud domain.")
-    icon = VERDICT_ICON["SKIPPED_MANUAL_TEST_REQUIRED"]
-    text = f"{header}\n  ---> FINAL VERDICT: {icon} SKIPPED_MANUAL_TEST_REQUIRED ({note})\n"
+    verdict = "SKIPPED_MANUAL_TEST_REQUIRED"
+    icon = VERDICT_ICON[verdict]
+    text = f"{header}\n  ---> FINAL VERDICT: {icon} {verdict} ({note})\n"
     log.write(text + "\n")
     log.flush()
-    return "SKIPPED_MANUAL_TEST_REQUIRED"
+
+    record = {
+        "id": test["id"],
+        "direction": test["direction"],
+        "automatable": test["automatable"],
+        "source": test["source"],
+        "destination": test["destination"],
+        "port": test["port"],
+        "protocol": test["protocol"],
+        "protocol_label": test["protocol_label"],
+        "service": test.get("service"),
+        "started_at": started_at,
+        "finished_at": now(),
+        "verdict": verdict,
+        "verdict_icon": icon,
+        "comment": None,
+        "commands": [],
+        "detail": text,
+    }
+    return verdict, record
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -414,16 +515,21 @@ def cmd_batch(args: argparse.Namespace) -> None:
     print(f"Running {total} tests...", flush=True)
     print(flush=True)
     verdicts: dict[str, int] = {}
+    records: list[dict] = []
+    run_started_at = now()
     with args.out.open("w", encoding="utf-8") as log:
-        log.write(f"# Local cloud domain -> Remote cloud domain connectivity test run\n# Start: {now()}\n\n")
+        log.write(f"# Local cloud domain -> Remote cloud domain connectivity test run\n# Start: {run_started_at}\n\n")
         for i, test in enumerate(tests, start=1):
             print(f"▶ [{i}/{total}] {test['id']}  {format_endpoint(test)}", flush=True)
             t0 = time.monotonic()
             if test.get("automatable"):
-                verdict = run_test(test, log, cfg)
+                verdict, record = run_test(test, log, cfg)
             else:
-                verdict = run_skipped(test, log)
+                verdict, record = run_skipped(test, log)
             elapsed = time.monotonic() - t0
+            record["log_file"] = args.out.name
+            record["duration_seconds"] = round(elapsed, 3)
+            records.append(record)
             print(f"    {VERDICT_ICON.get(verdict, '?')} {verdict}  ({elapsed:.1f}s)", flush=True)
             print(flush=True)
             verdicts[verdict] = verdicts.get(verdict, 0) + 1
@@ -433,8 +539,26 @@ def cmd_batch(args: argparse.Namespace) -> None:
             log.write(f"#   {VERDICT_ICON.get(verdict, '?')} {verdict}: {count}\n")
         log.write(f"# End: {now()}\n")
 
+    results_path = args.out.with_suffix(".json")
+    with results_path.open("w", encoding="utf-8") as jf:
+        json.dump(
+            {
+                "generated_by": "run_probe.py batch",
+                "spec": str(args.spec),
+                "filter_source_type": args.filter_source_type,
+                "log_file": args.out.name,
+                "run_started_at": run_started_at,
+                "run_finished_at": now(),
+                "results": records,
+            },
+            jf,
+            indent=2,
+            ensure_ascii=False,
+        )
+
     print()
     print(f"✅ Log written to {args.out}")
+    print(f"✅ Structured results written to {results_path}")
     print()
     print("Summary:")
     for verdict, count in sorted(verdicts.items()):

@@ -11,6 +11,8 @@
 # --suite falls back to the TEST_SUITE environment variable, and finally to
 # the "default" suite, if neither is given.
 # The resulting log is copied to outputs/<suite>/logs/local-cloud-domain-to-remote-cloud-domain-k8s-<timestamp>.log
+# (plus a matching <timestamp>.json companion with structured per-test
+# results, consumed by `uv run src/generate_report.py --suite <suite>`)
 set -euo pipefail
 
 SUITE="${TEST_SUITE:-}"
@@ -100,8 +102,11 @@ kubectl -n "$NAMESPACE" exec "$POD" -- \
 
 mkdir -p "$ROOT_DIR/outputs/$SUITE/logs"
 kubectl -n "$NAMESPACE" cp "$POD:/tmp/result.log" "$OUT_LOG"
+OUT_RESULTS="${OUT_LOG%.log}.json"
+kubectl -n "$NAMESPACE" cp "$POD:/tmp/result.json" "$OUT_RESULTS"
 
 echo "✅ Log copied to $OUT_LOG" >&2
+echo "✅ Structured results copied to $OUT_RESULTS" >&2
 echo "" >&2
 echo "run_probe.py, spec.json and connectivity-tests.toml are still in /tmp inside" >&2
 echo "the pod (it's a persistent Deployment, not ephemeral) -- for ad hoc single-case" >&2

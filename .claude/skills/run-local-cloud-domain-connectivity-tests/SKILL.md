@@ -1,6 +1,6 @@
 ---
 name: run-local-cloud-domain-connectivity-tests
-description: Guide for running the automated Local cloud domain -> Remote cloud domain connectivity tests, choosing the right backend (K8s from the lab PC, or VM/jumphost with the self-contained script) and consolidating results in outputs/.
+description: Guide for running the automated Local cloud domain -> Remote cloud domain connectivity tests, choosing the right backend (K8s from the lab PC, or VM/jumphost with the self-contained script), and consolidating/viewing results (text table + HTML report) in outputs/.
 ---
 # Run the Local cloud domain → Remote cloud domain connectivity tests
 
@@ -35,8 +35,8 @@ Each test case in `inputs/<suite>/connectivity-test-spec.json` has a
   kubectl apply -f manifests/netshoot-client-k8s.yaml   # once, if it doesn't already exist
   src/run_via_kubectl.sh --suite <name> [--namespace <ns>] [--deployment <name>]
   ```
-  The log ends up automatically at
-  `outputs/<suite>/logs/local-cloud-domain-to-remote-cloud-domain-k8s-<timestamp>.log`.
+  The log, plus its structured `.json` companion, end up automatically at
+  `outputs/<suite>/logs/local-cloud-domain-to-remote-cloud-domain-k8s-<timestamp>.{log,json}`.
 
 - **`source.type == "VM"`** → VM/jumphost backend. On the dev PC, generate
   the self-contained script (if it isn't already generated or the spec changed):
@@ -47,8 +47,10 @@ Each test case in `inputs/<suite>/connectivity-test-spec.json` has a
   Web), open a session to the jumphost/VM from there, and **paste the file's
   entire content** into the terminal (no file transfer needed: the script
   writes its own temp files locally and only needs Docker). Copy the
-  log block delimited by `===== LOG START =====` / `===== LOG END =====`
-  into a new file in `outputs/<name>/logs/` on the lab PC. It then drops you into an
+  log block delimited by `===== LOG START =====` / `===== LOG END =====`,
+  and its `.json` companion delimited by `===== RESULTS_JSON START =====` /
+  `===== RESULTS_JSON END =====`, into two new files with the same basename
+  in `outputs/<name>/logs/` on the lab PC. It then drops you into an
   interactive shell with `run_probe.py` + the spec already at `/data` —
   see "Ad hoc single-case tests" below.
 
@@ -83,7 +85,11 @@ Remote cloud domain service might not be deployed yet:
 
 `run_probe.py` prefixes each verdict (in the log and the terminal summary)
 with an icon: ✅ network/firewall confirmed open, ⚠️ weaker/inconclusive
-signal, ❌ inconclusive or blocked, ⏭️ skipped.
+signal, ❌ inconclusive or blocked, ⏭️ skipped. The log now also shows an
+explicit `COMMAND:` line before each diagnostic step (the real `ping`/
+`tcptraceroute` invocation, plus a synthesized-but-labeled-as-such line for
+the raw TCP connect/UDP send), so you no longer need to reconstruct what
+was actually launched from memory of the hardcoded constants.
 
 - ✅ `PASS`: connectivity OK.
 - ✅ `PORT_REFUSED_NETWORK_OPEN`: immediate TCP refusal (RST) — case A, the
@@ -111,3 +117,24 @@ If several cases in a row give `HOST_UNREACHABLE` for the same destination, susp
 a firewall rule that wasn't applied correctly rather than a one-off service
 problem. Section 5 of `README.md` documents how to reproduce by hand
 (without scripts) the same A/B/C diagnosis this runner applies.
+
+## Consolidating & viewing results
+
+Once you've collected the logs from both backends (K8s and/or VM) for a
+suite under `outputs/<suite>/logs/`, run, on the dev PC:
+
+```bash
+uv run src/generate_report.py --suite <name>
+```
+
+This merges every `.json` companion under that folder (latest run wins per
+test id) against the suite's spec and writes
+`outputs/<suite>/logs/summary-report.txt` (a plain-text table: id,
+direction, name, verdict, comment, log pointer) and
+`summary-report.html` (the same table, color-coded by verdict severity,
+with each row expandable to the full diagnostic detail — open it in a
+browser instead of scrolling through raw `.log` files). It also reports a
+`❔ NOT_RUN_YET` status for automatable tests with no result yet in any
+log — distinct from `⏭️ SKIPPED_MANUAL_TEST_REQUIRED`, which is genuinely
+not automatable (section 3 of `README.md`). See README.md section 6 for
+more detail.

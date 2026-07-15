@@ -96,7 +96,8 @@ outputs/<suite>/manifests/servers/local/  SERVER mocks for remote_cloud_domain_t
 outputs/<suite>/manifests/servers/remote/ SERVER mocks for local_cloud_domain_to_remote_cloud_domain destinations
                                            (hand off to the Remote-cloud-domain team; they deploy them)
 outputs/<suite>/standalone/               Self-contained script(s) to paste into the jumphost/VM
-outputs/<suite>/logs/                     Run logs
+outputs/<suite>/logs/                     Run logs: one .log + structured .json per run, plus the
+                                           consolidated summary-report.{txt,html} (section 6)
 ```
 
 ## 1. Generate the test specification
@@ -407,6 +408,19 @@ failure came with an explicit "no route to host"/"network unreachable" instead o
 silent timeout, it's noted as such; and after a `traceroute`/`tcptraceroute`
 a summary sentence is added indicating how far the traffic reached and whether
 it reached the destination itself or not (see section 5 for the detail on how this is interpreted).
+Every diagnostic step also gets an explicit `COMMAND:` line in the log
+showing exactly what was run (the real `ping`/`tcptraceroute` invocation
+including flags; for the TCP connect/UDP send themselves, which are raw
+socket calls rather than a CLI tool, a clearly-labeled equivalent showing
+the exact ip/port/timeout/ICMP-margin parameters used) — so the log alone
+is enough to reproduce a result by hand without guessing what was
+actually launched.
+
+Alongside the human-readable `.log`, each `run_probe.py batch` run also
+writes a structured `.json` companion (same basename) with one record per
+test: verdict, a short comment for weak/inconclusive verdicts, the exact
+commands used, and the full diagnostic detail. `generate_report.py` (see
+section 6) consumes these to build a consolidated summary.
 
 The wait margin used in the UDP ICMP detection trick (see
 section 2.3, UDP) is computed from the RTT measured by `ping` to that
@@ -425,8 +439,9 @@ src/run_via_kubectl.sh --suite cne2.0-v0.22 [--namespace <ns>] [--deployment <na
 `--suite` falls back to `$TEST_SUITE` if omitted, same as the Python
 scripts. The script does a `kubectl cp` of `run_probe.py`, the spec, and
 the resolved config file (see "Config resolution" in section 1) to the pod, runs it with
-`kubectl exec ... run_probe.py batch ...`, and copies the resulting log to
-`outputs/<suite>/logs/local-cloud-domain-to-remote-cloud-domain-k8s-<timestamp>.log`.
+`kubectl exec ... run_probe.py batch ...`, and copies both the resulting
+log and its `.json` companion to
+`outputs/<suite>/logs/local-cloud-domain-to-remote-cloud-domain-k8s-<timestamp>.{log,json}`.
 All from the lab PC, without going through the jumphost. Those copied files
 stay in the pod's `/tmp` afterward, ready for the ad hoc `list`/`tcp`/`udp`
 subcommands from section 2.2.
@@ -445,8 +460,11 @@ to the lab PC (OneDrive Web), open an SSH session to the jumphost/VM from there,
 **paste the file's entire content** into the terminal (no `scp` needed: the
 script writes its own temp files locally and only needs
 Docker installed). When the batch finishes, it prints the log delimited by
-`===== LOG START =====` / `===== LOG END =====`: copy that block and
-save it as `outputs/cne2.0-v0.22/logs/local-cloud-domain-to-remote-cloud-domain-vm-tests-<timestamp>.log`
+`===== LOG START =====` / `===== LOG END =====`, followed by its `.json`
+companion delimited by `===== RESULTS_JSON START =====` / `===== RESULTS_JSON END =====`:
+copy both blocks and save them as
+`outputs/cne2.0-v0.22/logs/local-cloud-domain-to-remote-cloud-domain-vm-tests-<timestamp>.log`
+and the matching `...-<timestamp>.json`
 on the lab PC. It then drops you into an interactive shell with
 `run_probe.py` and the spec still present at `/data`, for the ad hoc
 `list`/`tcp`/`udp` subcommands from section 2.2 — `exit` when done to clean
@@ -502,6 +520,36 @@ what you observe into a diagnosis, distinguishing three situations:
 6. Apply the decision table above with what you observed in 2-5. (The 2.2
    subcommands do steps 2-5 for you and print the resulting verdict directly.)
 
+## 6. Consolidated summary & HTML report
+
+Once the logs from both backends (K8s and/or VM) for a suite are collected
+under `outputs/<suite>/logs/`, run, on the dev PC:
+
+```bash
+uv run src/generate_report.py --suite cne2.0-v0.22
+```
+
+This merges every `.json` companion found there (by test id, the most
+recently-run result wins when a test was run more than once) against the
+suite's spec, so every test case shows up exactly once even though the K8s
+and VM backends each only cover the subset of tests originating from their
+own `source.type`. It writes two views of the same data:
+
+- `outputs/<suite>/logs/summary-report.txt` — a plain-text table (id,
+  direction, name, verdict, comment, log pointer) for quick terminal/text
+  viewing.
+- `outputs/<suite>/logs/summary-report.html` — a single self-contained
+  HTML file, color-coded by verdict severity, with each row expandable to
+  show the full diagnostic detail (including the `COMMAND:` lines) without
+  needing to open the raw `.log` separately.
+
+Besides the verdicts `run_probe.py` itself can produce (see "Verdict
+interpretation" below), the report adds one status of its own,
+`NOT_RUN_YET` (❔): an automatable test with no matching result in any
+`.json` file yet — distinct from `SKIPPED_MANUAL_TEST_REQUIRED`, which
+means the test genuinely can't be automated (Local cloud domain acts as
+server, see section 3).
+
 ## Verdict interpretation
 
 Each verdict printed by `run_probe.py` (in the log and in the terminal
@@ -524,3 +572,12 @@ required).
 
 See section 5 for the detail on how each verdict is reached and how
 to reproduce it by hand.
+
+The four ⚠️/❌ weak-or-inconclusive verdicts above (`PORT_CLOSED_HOST_REACHABLE`,
+`HOST_UNREACHABLE`, `UDP_SENT_HOST_REACHABLE`, `UDP_SENT_HOST_UNREACHABLE`)
+also carry a short diagnostic-nuance comment in `generate_report.py`'s
+summary (see section 6) — the exact phrasing lives in `VERDICT_COMMENT` in
+`src/run_probe.py`, not duplicated here. The report additionally shows a
+`❔ NOT_RUN_YET` status that is **not** one of `run_probe.py`'s own
+verdicts (it's absent from `VERDICT_ICON`) — it only means the report
+found no logged result for that test id yet.

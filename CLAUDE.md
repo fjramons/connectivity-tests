@@ -30,11 +30,12 @@ uv sync                                              # create .venv with pyyaml 
 uv run src/generate_test_spec.py --suite NAME         # CSV -> inputs/NAME/connectivity-test-spec.{yaml,json}
 uv run src/generate_server_manifests.py --suite NAME  # spec -> outputs/NAME/manifests/servers/local/<slug>-k8s.yaml + .../remote/<slug>-k8s.yaml (one per unique destination, per direction)
 uv run src/generate_standalone_script.py --suite NAME # spec + run_probe.py -> outputs/NAME/standalone/*.sh (self-contained, for the jumphost)
+uv run src/generate_report.py --suite NAME            # spec + outputs/NAME/logs/*.json -> outputs/NAME/logs/summary-report.{txt,html}
 uv run python3 -m py_compile src/*.py                 # syntax-check all Python scripts
 bash -n <script>.sh                                   # syntax-check generated/hand-written shell scripts
 ```
 
-`--suite NAME` is required on all three generators (and on
+`--suite NAME` is required on all four generators (and on
 `src/run_via_kubectl.sh`, as `--suite`); it can also be set once per shell
 session via `export TEST_SUITE=NAME` instead of repeating the flag — see
 "Suites" below.
@@ -46,15 +47,15 @@ where only the stdlib is available — see "Two execution tiers" below.
 ## Suites
 
 Every entry point (`generate_test_spec.py`, `generate_server_manifests.py`,
-`generate_standalone_script.py`, `run_via_kubectl.sh`) resolves a suite
-name as: explicit `--suite <name>` flag, else the `TEST_SUITE` environment
+`generate_standalone_script.py`, `generate_report.py`, `run_via_kubectl.sh`)
+resolves a suite name as: explicit `--suite <name>` flag, else the `TEST_SUITE` environment
 variable, else the `default` suite (`inputs/default/`), printed as an `ℹ️`
 notice so a run never silently lands in the wrong suite unnoticed. If the
 resolved suite's `inputs/<name>/` folder doesn't exist, every entry point
 fails fast with a clear error listing the suites that do exist and how to
 pick one — no entry point ever operates against a nonexistent suite. The
 same suite name is reused, unchanged, to resolve every path across all
-four entry points:
+five entry points:
 
 - `inputs/<name>/` (source CSVs and the generated spec,
   `connectivity-test-spec.{yaml,json}`)
@@ -66,17 +67,24 @@ four entry points:
   domain-owned; we have no deploy access there, so these are handed off to
   the Remote-cloud-domain team instead)
 - `outputs/<name>/standalone/` (the self-contained jumphost script)
-- `outputs/<name>/logs/` (run logs)
+- `outputs/<name>/logs/` (run logs: one `.log` + structured `.json`
+  companion per `run_probe.py batch` run, plus the consolidated
+  `summary-report.{txt,html}` produced by `generate_report.py` from all
+  of them — see "Verifying changes" and README.md section 6)
 - optionally `inputs/<name>/connectivity-tests.toml` (suite-specific config
   override — see "Config resolution" below)
 
 So switching suites is changing one flag/variable, not several. `ls
-inputs/` lists the suites that currently exist on disk. Suite resolution
-is duplicated independently in each of the three Python generators (a few
-lines each, `resolve_suite()`), consistent with this repo's existing style
-of small independent scripts rather than a shared module — `run_probe.py`
-and the hand-written client manifests (`manifests/netshoot-client-*`)
-remain suite-agnostic by design (see below).
+inputs/` lists the suites that currently exist on disk. Suite/config
+resolution (`resolve_suite()`, `check_suite_exists()`,
+`resolve_config_path()`) lives in one shared `src/suite_common.py`,
+imported by all four Python generators — this is the one exception to
+this repo's usual style of small independent scripts with no shared
+module, justified because the three functions were previously
+byte-for-byte duplicated across three files and a fourth generator
+(`generate_report.py`) needed the same logic again. `run_probe.py` and the
+hand-written client manifests (`manifests/netshoot-client-*`) remain
+suite-agnostic by design (see below) and do not import `suite_common`.
 
 ## Three physical environments — this shapes almost every design decision here
 
@@ -96,7 +104,10 @@ environments" for the full picture):
    `src/generate_standalone_script.py` exists: it bundles `run_probe.py`'s
    source, a filtered spec, and `inputs/<suite>/connectivity-tests.toml` into heredocs
    inside one `.sh` file, so the whole thing (code + data + config) can be
-   delivered by copy-pasting a single block, with no `scp` required.
+   delivered by copy-pasting a single block, with no `scp` required. The
+   run's results travel back the same way, in reverse: the script prints
+   both the `.log` and its `.json` companion between copy-paste markers for
+   the operator to save locally under matching filenames.
 
 Generated artifacts — the CSVs and generated spec under `inputs/<suite>/`,
 and everything under `outputs/<suite>/` (manifests, standalone script, run
@@ -116,9 +127,10 @@ losing anything on a fresh clone.
 ## Two execution tiers for the Python code
 
 - **Generators** (`generate_test_spec.py`, `generate_server_manifests.py`,
-  `generate_standalone_script.py`): run only on the Dev PC via `uv run`, may
-  use `pyyaml` (the project's only dependency) and `tomllib` (stdlib,
-  Python ≥3.11).
+  `generate_standalone_script.py`, `generate_report.py`): run only on the
+  Dev PC via `uv run`, may use `pyyaml` (the project's only dependency) and
+  `tomllib` (stdlib, Python ≥3.11). `generate_report.py` is the exception
+  that doesn't need either — it only reads JSON/the spec, both stdlib.
 - **`run_probe.py`** (the actual TCP/UDP probe engine): must stay
   **stdlib-only** (`json`, `socket`, `subprocess`, `tomllib`, `argparse`,
   `re`, `errno`) because it executes inside `nicolaka/netshoot:v0.15` (no
@@ -202,6 +214,31 @@ destination. Any change to verdict names must be kept in sync across:
 `src/run_probe.py`, `README.md` (both the decision table and the final
 verdicts table), and `.claude/skills/run-local-cloud-domain-connectivity-tests/SKILL.md`.
 
+Every diagnostic step (`ping`, `traceroute`/`tcptraceroute`, and the raw
+TCP connect/UDP send themselves) is logged with an explicit `COMMAND:`
+line showing the exact invocation (real argv for the subprocess-based
+tools; a synthesized-but-labeled-as-such parameter line for TCP/UDP, which
+use raw sockets, not a CLI tool) — see `run_test()`'s `log_command()`
+helper. `run_test()`/`run_skipped()` also return a structured per-test
+record (verdict, comment, commands, full detail text) that `cmd_batch()`
+collects and writes as a `.json` companion next to `--out`'s `.log`, for
+`generate_report.py` to consume later.
+
+`generate_report.py --suite NAME` merges every `outputs/<suite>/logs/*.json`
+(by test id, most recent `finished_at` wins — there's normally at least
+one file per backend, K8s and VM, since each only covers the tests
+originating from that `source.type`) against the suite's spec and writes
+`outputs/<suite>/logs/summary-report.{txt,html}`. A test with
+`automatable: false` and no matching JSON record is reported as
+`SKIPPED_MANUAL_TEST_REQUIRED` **synthesized directly from the spec**, not
+from an actual logged record — with the current `--filter-source-type`
+usage in both backends, `remote_cloud_domain_to_local_cloud_domain` tests
+(`source.type` is always `None`) never actually reach `run_skipped()` in
+practice, so don't assume a real log record exists for them. A test that's
+`automatable: true` but has no matching JSON record anywhere is reported
+as `NOT_RUN_YET` — a report-only status, not one of `run_probe.py`'s own
+verdicts, so it's intentionally absent from `VERDICT_ICON`.
+
 ## Verifying changes
 
 There's no test suite; verification is done by running things directly
@@ -216,8 +253,21 @@ There's no test suite; verification is done by running things directly
 - Regenerate the standalone script and grep for the heredoc delimiters
   (`PROBE_PY_EOF`, `SPEC_JSON_EOF`, `PROBE_TOML_EOF`) to confirm embedding
   worked; `generate_standalone_script.py` already raises if embedded content
-  collides with a delimiter.
+  collides with a delimiter. Also grep for the `RESULTS_JSON START`/`END`
+  markers to confirm the JSON companion is dumped alongside the log.
 - Validate generated K8s manifests with `yaml.safe_load_all`.
+- Validate `run_probe.py batch`'s `.json` companion with
+  `python3 -c "import json,sys; json.load(open(sys.argv[1]))"`, then place
+  it (and a spec covering the same test ids) under a scratch
+  `inputs/<suite>/` / `outputs/<suite>/logs/` and run
+  `uv run src/generate_report.py --suite <suite>` to confirm
+  `summary-report.txt` and `.html` render all four statuses (`PASS`-like,
+  weak/inconclusive with a comment, `SKIPPED_MANUAL_TEST_REQUIRED`, and
+  `NOT_RUN_YET` for an untested id) and that the HTML opens/expands
+  correctly in a browser.
+- After touching `src/suite_common.py`, re-run all four generators against
+  an existing suite to confirm the shared suite/config resolution behaves
+  identically (same error messages for an invalid/nonexistent suite).
 
 ## Project skills
 
