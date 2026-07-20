@@ -32,7 +32,7 @@ protocol so both TCP and UDP paths run at least once per target:
 | Destination | Port/Protocol | Source Type | Expected verdict |
 |---|---|---|---|
 | target-open | 5201/tcp | K8s Cluster | `PASS` |
-| target-open | 5202/udp | VM | `UDP_SENT_HOST_REACHABLE` (UDP has no strong "delivered" signal even when open, see README section 5) |
+| target-open | 5202/udp | VM | `UDP_SENT_HOST_REACHABLE` (UDP has no strong "delivered" signal even when open, see README's "Step-by-step manual diagnosis" appendix) |
 | target-refused | 5301/tcp | K8s Cluster | `PORT_REFUSED_NETWORK_OPEN` |
 | target-refused | 5302/udp | VM | `UDP_REFUSED_NETWORK_OPEN` |
 | target-filtered | 5401/tcp | K8s Cluster | `PORT_CLOSED_HOST_REACHABLE` |

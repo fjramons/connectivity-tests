@@ -6,6 +6,7 @@
 #
 # Usage:
 #   dev-env/cluster.sh up [-y|--yes]
+#   dev-env/cluster.sh deploy-client
 #   dev-env/cluster.sh down [-y|--yes]
 #   dev-env/cluster.sh status
 #
@@ -51,13 +52,24 @@ cmd_up() {
   log_info "Applying MetalLB IPAddressPool/L2Advertisement for ${prefix}.200-${prefix}.209..."
   DEV_ENV_SUBNET_PREFIX="$prefix" envsubst '${DEV_ENV_SUBNET_PREFIX}' <"$POOL_TEMPLATE" | kubectl apply -f -
 
+  log_ok "Cluster '$CLUSTER_NAME' is up. kubectl context: $(kubectl config current-context)"
+  log_info "Run 'source dev-env/env.sh' in your shell so plain kubectl / src/run_via_kubectl.sh use it too."
+  log_info "Next: dev-env/cluster.sh deploy-client (if you need the test client), dev-env/targets.sh up, then dev-env/suite.sh sync --suite dev-local."
+}
+
+cmd_deploy_client() {
+  preflight_kind_kubectl
+
+  if ! kind get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then
+    log_err "Cluster '$CLUSTER_NAME' does not exist yet."
+    echo "   Run 'dev-env/cluster.sh up' first." >&2
+    exit 1
+  fi
+
   log_info "Applying the generic netshoot client manifest (manifests/netshoot-client-k8s.yaml) in namespace $DEV_ENV_NAMESPACE..."
   kubectl apply -n "$DEV_ENV_NAMESPACE" -f "$CLIENT_MANIFEST"
   kubectl -n "$DEV_ENV_NAMESPACE" rollout status --timeout=120s deployment/netshoot-client
-
-  log_ok "Cluster '$CLUSTER_NAME' is up. kubectl context: $(kubectl config current-context)"
-  log_info "Run 'source dev-env/env.sh' in your shell so plain kubectl / src/run_via_kubectl.sh use it too."
-  log_info "Next: dev-env/targets.sh up, then dev-env/suite.sh sync --suite dev-local."
+  log_ok "Test client deployed in namespace $DEV_ENV_NAMESPACE."
 }
 
 cmd_down() {
@@ -98,11 +110,12 @@ main() {
   parse_yes_flag "$@" >/dev/null # sets the global ASSUME_YES
 
   case "$subcommand" in
-    up)     run_up_with_recovery cmd_down cmd_up ;;
-    down)   cmd_down ;;
-    status) cmd_status ;;
+    up)             run_up_with_recovery cmd_down cmd_up ;;
+    deploy-client)  cmd_deploy_client ;;
+    down)           cmd_down ;;
+    status)         cmd_status ;;
     *)
-      echo "Usage: $0 {up|down|status} [-y|--yes]" >&2
+      echo "Usage: $0 {up|deploy-client|down|status} [-y|--yes]" >&2
       exit 1
       ;;
   esac

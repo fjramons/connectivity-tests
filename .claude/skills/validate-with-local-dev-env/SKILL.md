@@ -27,20 +27,23 @@ dev-env/validate.sh status [--suite dev-local]
 `run` (default `--only both`):
 1. Brings up whatever infra `--only` needs (idempotent -- safe to re-run
    without tearing down first).
-2. Syncs `dev-env/reference-suite/` into `inputs/<suite>/`.
-3. Regenerates the spec (`generate_test_spec.py`).
-4. `--only k8s`/`both` only: regenerates + applies the local server
+2. `--only k8s`/`both` only: deploys the test client
+   (`dev-env/cluster.sh deploy-client`) -- a separate, explicit step from
+   bringing the cluster up.
+3. Syncs `dev-env/reference-suite/` into `inputs/<suite>/`.
+4. Regenerates the spec (`generate_test_spec.py`).
+5. `--only k8s`/`both` only: regenerates + applies the local server
    manifests (`generate_server_manifests.py` + `kubectl apply -f
    outputs/<suite>/manifests/servers/local/`), proving the MetalLB
    LoadBalancer mechanism works -- these cases are never actually probed
    by `run_probe.py` (always `SKIPPED_MANUAL_TEST_REQUIRED`, same as prod).
-5. Runs the automated tests: `--only k8s`/`both` via
+6. Runs the automated tests: `--only k8s`/`both` via
    `src/run_via_kubectl.sh`; `--only vm`/`both` via the new
    `dev-env/run-vm-tests.sh` (the emulated-VM equivalent, `docker cp`/`exec`
    instead of `kubectl cp`/`exec`).
-6. Regenerates the consolidated report (`generate_report.py`) and prints
+7. Regenerates the consolidated report (`generate_report.py`) and prints
    its path.
-7. Prints a reminder + the exact `dev-env/validate.sh down --suite <suite>`
+8. Prints a reminder + the exact `dev-env/validate.sh down --suite <suite>`
    command -- **infra is left running by design** (iterative development;
    tearing down would force a kind+MetalLB rebuild for every small
    re-check). Only tear down once the development being validated is

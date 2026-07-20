@@ -117,7 +117,7 @@ REMOTE_MANIFEST_TEMPLATE = """\
 #     point to "app: {app_label}" instead of applying the Service below.
 #
 # Once deployed there, run the automated local_cloud_domain_to_remote_cloud_domain
-# tests from Local cloud domain against {ip}:{port} (see README.md section 4).
+# tests from Local cloud domain against {ip}:{port} (see README.md section 3).
 #
 # Origin in the spec: {origin_summary}
 apiVersion: apps/v1

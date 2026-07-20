@@ -52,10 +52,10 @@ suites that currently exist on disk.
 3. **Regenerate the server manifests for both directions**: one per unique
    `remote_cloud_domain_to_local_cloud_domain` destination under
    `servers/local/` (deploy in Local cloud domain, have Remote cloud domain
-   test them — see README section 3.1), and one per unique
+   test them — see README section 2.1), and one per unique
    `local_cloud_domain_to_remote_cloud_domain` destination under
    `servers/remote/` (hand off to the Remote-cloud-domain team so they
-   deploy them in their own cluster — see README section 3.2):
+   deploy them in their own cluster — see README section 2.2):
    ```bash
    uv run src/generate_server_manifests.py --suite <name>
    ```

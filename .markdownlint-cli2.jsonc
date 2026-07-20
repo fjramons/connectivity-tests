@@ -1,12 +1,7 @@
 {
-  // Table cells and fenced code blocks (repo tree, decision tables) carry
-  // domain-specific content that can't be hard-wrapped without breaking
-  // their structure or truncating meaning, so MD013 skips them.
+  // MD013 (line-length) disabled: too disruptive for manual editing of
+  // prose-heavy files like README.md.
   "config": {
-    "MD013": {
-      "line_length": 100,
-      "tables": false,
-      "code_blocks": false
-    }
+    "MD013": false
   }
 }

@@ -45,6 +45,7 @@ cmd_run() {
   "$DEV_ENV_DIR/targets.sh" up "${yes_flag[@]}"
   if [[ "$ONLY" != "vm" ]]; then
     "$DEV_ENV_DIR/cluster.sh" up "${yes_flag[@]}"
+    "$DEV_ENV_DIR/cluster.sh" deploy-client
   fi
   if [[ "$ONLY" != "k8s" ]]; then
     "$DEV_ENV_DIR/vm.sh" up "${yes_flag[@]}"

@@ -8,7 +8,7 @@ Only the `local_cloud_domain_to_remote_cloud_domain` direction is automated
 (Local cloud domain acts as client): it's the only one that can be launched
 without depending on someone in Remote cloud domain doing something. The
 `remote_cloud_domain_to_local_cloud_domain` cases require manual coordination
-with Remote cloud domain — see section 3 of `README.md`.
+with Remote cloud domain — see section 2 of `README.md`.
 
 ## Suites
 
@@ -73,9 +73,9 @@ python3 run_probe.py udp <ip> <port> --config connectivity-tests.toml   # --conf
 
 For K8s, these run inside the pod's persistent `/tmp` (left there by
 `run_via_kubectl.sh`); for VM/jumphost, inside the interactive shell the
-standalone script drops you into at the end. See README.md section 2.2 for
-the full explanation and section 2.3 for the low-level (raw Linux tools)
-equivalent.
+standalone script drops you into at the end. See README.md section 4.2 for
+the full explanation and the "Low-level: raw Linux tools" appendix for the
+low-level (raw Linux tools) equivalent.
 
 ## Interpreting the results
 
@@ -111,12 +111,13 @@ was actually launched from memory of the hardcoded constants.
   answered ping or not), not a good/bad signal by itself — both `UDP_SENT_*`
   verdicts are equally inconclusive, confirm with the receiving team if needed.
 - ⏭️ `SKIPPED_MANUAL_TEST_REQUIRED`: `remote_cloud_domain_to_local_cloud_domain` case, not attempted
-  automatically — see section 3 of `README.md`.
+  automatically — see section 2 of `README.md`.
 
 If several cases in a row give `HOST_UNREACHABLE` for the same destination, suspect
 a firewall rule that wasn't applied correctly rather than a one-off service
-problem. Section 5 of `README.md` documents how to reproduce by hand
-(without scripts) the same A/B/C diagnosis this runner applies.
+problem. README.md's "Step-by-step manual diagnosis" appendix documents how
+to reproduce by hand (without scripts) the same A/B/C diagnosis this runner
+applies.
 
 ## Consolidating & viewing results
 
@@ -136,5 +137,5 @@ with each row expandable to the full diagnostic detail — open it in a
 browser instead of scrolling through raw `.log` files). It also reports a
 `❔ NOT_RUN_YET` status for automatable tests with no result yet in any
 log — distinct from `⏭️ SKIPPED_MANUAL_TEST_REQUIRED`, which is genuinely
-not automatable (section 3 of `README.md`). See README.md section 6 for
+not automatable (section 2 of `README.md`). See README.md section 5 for
 more detail.

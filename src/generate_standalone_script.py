@@ -14,7 +14,7 @@ The generated script:
      outputs/ on the lab PC (same basename, `.log` and `.json`).
   5. Drops the operator into an interactive `docker run -it` shell with
      run_probe.py + spec.json still present at /data, to run ad hoc
-     `list`/`tcp`/`udp` subcommands (see README.md section 2.2) before the
+     `list`/`tcp`/`udp` subcommands (see README.md section 4.2) before the
      temp directory is cleaned up on exit.
 
 Runs on the dev PC with `uv run src/generate_standalone_script.py`.
@@ -47,7 +47,7 @@ SCRIPT_TEMPLATE = """\
 # find both later)
 # After the log is printed, you land inside an interactive shell with
 # run_probe.py + spec.json still available, for ad hoc single-case tests
-# (see README.md section 2.2). Type 'exit' to leave and clean up.
+# (see README.md section 4.2). Type 'exit' to leave and clean up.
 #
 # Requires: docker installed with network egress to Remote cloud domain (same
 # egress IP as the VM, thanks to --network host).

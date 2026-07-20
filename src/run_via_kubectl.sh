@@ -115,4 +115,4 @@ echo "  kubectl exec -it $POD -n $NAMESPACE -- bash" >&2
 echo "  python3 /tmp/run_probe.py list --spec /tmp/spec.json" >&2
 echo "  python3 /tmp/run_probe.py tcp <ip> <port>" >&2
 echo "  python3 /tmp/run_probe.py udp <ip> <port> --config /tmp/connectivity-tests.toml" >&2
-echo "See README.md section 2.2 for details." >&2
+echo "See README.md section 4.2 for details." >&2

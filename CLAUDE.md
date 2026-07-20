@@ -8,8 +8,9 @@ Tooling to validate connectivity and firewall rules between "Remote cloud
 domain" and "Local cloud domain", driven by a firewall rule matrix delivered as two CSV
 files in `inputs/<suite>/`. It generates a normalized test spec, K8s/Compose
 manifests, and scripts to actually run the connectivity checks — both
-automated and fully-manual fallbacks (see README.md sections 2, 3 and 5 for
-the manual procedures and how connectivity failures are diagnosed).
+automated and fully-manual fallbacks (see README.md sections 2 and 4, and
+the "Step-by-step manual diagnosis" appendix, for the manual procedures and
+how connectivity failures are diagnosed).
 
 Multiple independent **test suites** can coexist on disk under named
 subfolders: `inputs/<suite>/` (CSVs + generated spec, optionally its own
@@ -70,7 +71,7 @@ five entry points:
 - `outputs/<name>/logs/` (run logs: one `.log` + structured `.json`
   companion per `run_probe.py batch` run, plus the consolidated
   `summary-report.{txt,html}` produced by `generate_report.py` from all
-  of them — see "Verifying changes" and README.md section 6)
+  of them — see "Verifying changes" and README.md section 5)
 - optionally `inputs/<name>/connectivity-tests.toml` (suite-specific config
   override — see "Config resolution" below)
 
@@ -182,7 +183,7 @@ is what every other script consumes for that suite. Each test case has:
   domain is the client — the only direction that can be automated without
   Remote cloud domain cooperation) or `remote_cloud_domain_to_local_cloud_domain`
   (Local cloud domain is the server — needs manual testing from a Remote
-  cloud domain client, see README section 3).
+  cloud domain client, see README section 2).
 - `automatable`: `true` only for `local_cloud_domain_to_remote_cloud_domain`.
 - `source.type`: `"VM"` or `"K8s Cluster"` — determines which backend
   (`run_via_kubectl.sh` vs. the standalone jumphost script) should run it.
@@ -203,7 +204,8 @@ JSON without re-parsing the CSVs.
 The core design question this script answers is: *when a probe fails, is it
 a firewall problem or just a service that isn't deployed yet in Remote
 cloud domain?*
-It distinguishes three cases (documented in depth in README.md section 5 and
+It distinguishes three cases (documented in depth in README.md's
+"Step-by-step manual diagnosis" appendix and
 the "Verdict interpretation" table — read that before changing verdict
 logic):
 

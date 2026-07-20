@@ -34,7 +34,8 @@ PING_COUNT = 4
 PING_TIMEOUT = 2
 TRACEROUTE_TIMEOUT = 20
 
-# UDP ICMP margin configuration (see README, section 5, UDP note).
+# UDP ICMP margin configuration (see README's "Step-by-step manual
+# diagnosis" appendix, UDP note).
 # Overridable via --config connectivity-tests.toml, [probe] table.
 DEFAULT_PROBE_CONFIG = {
     "udp_icmp_wait_default_seconds": 0.5,
@@ -482,7 +483,8 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Runs a single UDP probe against ip:port by hand: pings first (to calibrate the ICMP wait "
             "margin), then sends the datagram twice to try to observe an ICMP port-unreachable, printing "
-            "full detail to stdout. Does not require ping/ICMP to succeed -- see README section 2.3."
+            "full detail to stdout. Does not require ping/ICMP to succeed -- see README's "
+            "'Low-level: raw Linux tools' appendix."
         ),
     )
     p_udp.add_argument("ip", help="Destination IP address")

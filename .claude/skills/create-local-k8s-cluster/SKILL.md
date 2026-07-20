@@ -39,9 +39,10 @@ that shell.
 ## Usage
 
 ```bash
-dev-env/cluster.sh up       # create the cluster, install MetalLB, apply the pool + the client manifest
-dev-env/cluster.sh status   # read-only: cluster/nodes/MetalLB/pool state
-dev-env/cluster.sh down     # tear everything down (cluster only -- see below for the rest)
+dev-env/cluster.sh up              # create the cluster, install MetalLB, apply the pool
+dev-env/cluster.sh deploy-client   # apply the netshoot test client (separate, explicit step)
+dev-env/cluster.sh status          # read-only: cluster/nodes/MetalLB/pool state
+dev-env/cluster.sh down            # tear everything down (cluster only -- see below for the rest)
 ```
 
 `up` is idempotent (safe to re-run). Add `-y`/`--yes` to auto-confirm
@@ -63,10 +64,16 @@ a partial failure instead of losing state).
    (`dev-env/kind/vendor/metallb-native.yaml`, pinned so this works
    offline after the initial clone) and waits for it to be ready.
 5. Applies the `IPAddressPool`/`L2Advertisement` for `.200-.209`.
-6. Applies `manifests/netshoot-client-k8s.yaml` (the existing, unmodified
-   client manifest) into namespace `default`, so
-   `src/run_via_kubectl.sh --suite dev-local` works immediately with no
-   extra manual step.
+
+## What `deploy-client` does
+
+Applies `manifests/netshoot-client-k8s.yaml` (the existing, unmodified
+client manifest) into namespace `default` and waits for its rollout, so
+`src/run_via_kubectl.sh --suite dev-local` has something to talk to. Kept
+as its own explicit step, separate from `up`, rather than bundled
+silently into cluster creation -- run it whenever you actually need the
+test client, not automatically every time the cluster comes up. Requires
+`up` to have run first (errors clearly otherwise).
 
 ## Verifying it worked
 
@@ -75,7 +82,7 @@ source dev-env/env.sh
 kubectl get nodes                                  # one Ready node
 kubectl -n metallb-system get pods                 # controller + speaker Running
 kubectl -n metallb-system get ipaddresspools.metallb.io
-kubectl get deploy netshoot-client                 # 1/1 ready
+kubectl get deploy netshoot-client                 # 1/1 ready (after 'deploy-client')
 ```
 
 To see a `LoadBalancer` Service actually get an `EXTERNAL-IP` from the
