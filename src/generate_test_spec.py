@@ -97,7 +97,7 @@ def pair_ports_protocols(
 
 
 def load_config(config_path: Path) -> dict:
-    defaults = {"port_protocol_pairing": "one_to_one"}
+    defaults = {"port_protocol_pairing": "cross_product"}
     if config_path.exists():
         with config_path.open("rb") as f:
             defaults.update(tomllib.load(f))

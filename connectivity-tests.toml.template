@@ -5,9 +5,12 @@
 
 # What to do when, within the same CSV row, "Port Number / Range" and "Protocol"
 # have the same number of elements (>1):
-#   - "one_to_one":     pair by position (443<->https, 8081<->tcp, 8082<->tcp over mTLS)
-#   - "cross_product":  generate all port x protocol combinations
-port_protocol_pairing = "one_to_one"
+#   - "cross_product":  generate all port x protocol combinations (default)
+#   - "one_to_one":     pair by position instead (443<->https, 8081<->tcp,
+#                       8082<->tcp over mTLS) -- opt into this only for suites
+#                       whose CSV rows are deliberately laid out to line up
+#                       positionally
+port_protocol_pairing = "cross_product"
 
 # Kubernetes namespace where the generated server test manifests
 # (suites/<suite>/outputs/manifests/servers/*.yaml) are meant to be deployed. NOT

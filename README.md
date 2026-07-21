@@ -211,9 +211,11 @@ Each CSV expands into individual test cases (one IP × one port), including
 lists (`10.2.113.129, 10.2.113.131`) and ranges (`10.180.141.99-10.180.141.105`).
 When ports and protocols have the same number of elements in a row
 (e.g. 3 ports and 3 protocols), the pairing is controlled from
-`suites/<suite>/connectivity-tests.toml` (`port_protocol_pairing`: `one_to_one` by default,
-or `cross_product`); it can also be forced for a single run with
-`--port-protocol-pairing cross_product`.
+`suites/<suite>/connectivity-tests.toml` (`port_protocol_pairing`: `cross_product` by
+default, generating every port × protocol combination, or `one_to_one` to pair by
+position instead — opt into `one_to_one` only for suites whose CSV rows are
+deliberately laid out to line up positionally); it can also be forced for a
+single run with `--port-protocol-pairing one_to_one`.
 
 The config file also has a `namespace` key (`"default"` unless set) that
 `src/generate_server_manifests.py` uses to print/document the suggested

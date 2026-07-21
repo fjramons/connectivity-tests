@@ -3,7 +3,6 @@
 # connectivity-tests.toml.template except namespace, documented here for
 # clarity since dev-env/cluster.sh applies manifests/netshoot-client-k8s.yaml
 # into that same namespace.
-port_protocol_pairing = "one_to_one"
 namespace = "default"
 
 # The vendored MetalLB release dev-env/cluster.sh installs

@@ -193,10 +193,11 @@ is what every other script consumes for that suite. Each test case has:
 
 CSV rows expand into multiple test cases: IP lists/ranges (`a, b` or
 `a.b.c.d-e.f.g.h`) and port lists always cross-product; when a row has the
-*same* count of ports and protocols (e.g. 3 ports, 3 protocols), they pair
-1:1 by position by default (`port_protocol_pairing = "one_to_one"` in
-`suites/<suite>/connectivity-tests.toml`), not cross-product — this mirrors how the
-source CSV rows are laid out. The YAML is hand-editable; after editing, run
+*same* count of ports and protocols (e.g. 3 ports, 3 protocols), they
+cross-product by default too (`port_protocol_pairing = "cross_product"` in
+`suites/<suite>/connectivity-tests.toml`) — pairing 1:1 by position instead
+(`"one_to_one"`) is an explicit opt-in for suites whose CSV rows are
+deliberately laid out to line up positionally. The YAML is hand-editable; after editing, run
 `uv run src/generate_test_spec.py --suite <name> --from-yaml` to resync the
 JSON without re-parsing the CSVs.
 
