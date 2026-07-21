@@ -34,10 +34,10 @@ def resolve_suite(suite: str | None) -> str:
 
 
 def check_suite_exists(suite: str) -> None:
-    suite_dir = ROOT / "inputs" / suite
+    suite_dir = ROOT / "suites" / suite
     if not suite_dir.is_dir():
         existing = sorted(
-            p.name for p in (ROOT / "inputs").iterdir()
+            p.name for p in (ROOT / "suites").iterdir()
             if p.is_dir() and not p.name.startswith(".")
         )
         raise SystemExit(
@@ -49,12 +49,12 @@ def check_suite_exists(suite: str) -> None:
 
 
 def resolve_config_path(explicit: Path | None, suite: str) -> Path:
-    """inputs/<suite>/connectivity-tests.toml if it exists, else the generic
+    """suites/<suite>/connectivity-tests.toml if it exists, else the generic
     connectivity-tests.toml (auto-created from connectivity-tests.toml.template
     on first use if it doesn't exist yet)."""
     if explicit:
         return explicit
-    suite_config = ROOT / "inputs" / suite / "connectivity-tests.toml"
+    suite_config = ROOT / "suites" / suite / "connectivity-tests.toml"
     if suite_config.exists():
         return suite_config
     if not GENERIC_CONFIG.exists() and CONFIG_TEMPLATE.exists():

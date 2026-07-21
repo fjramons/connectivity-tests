@@ -293,8 +293,8 @@ def main() -> None:
     parser.add_argument(
         "--suite",
         default=None,
-        help="Suite name (subfolder under inputs//outputs/; config is read from "
-        "inputs/<suite>/connectivity-tests.toml if present). Falls back to the "
+        help="Suite name (subfolder under suites/; config is read from "
+        "suites/<suite>/connectivity-tests.toml if present). Falls back to the "
         "TEST_SUITE environment variable, and finally to the 'default' suite, if omitted.",
     )
     parser.add_argument("--spec", type=Path, default=None)
@@ -319,8 +319,8 @@ def main() -> None:
     suite = resolve_suite(args.suite)
     if args.spec is None:
         check_suite_exists(suite)
-    spec = args.spec or ROOT / "inputs" / suite / "connectivity-test-spec.json"
-    out_dir = args.out_dir or ROOT / "outputs" / suite / "manifests" / "servers"
+    spec = args.spec or ROOT / "suites" / suite / "connectivity-test-spec.json"
+    out_dir = args.out_dir or ROOT / "suites" / suite / "outputs" / "manifests" / "servers"
     local_out_dir = out_dir / "local"
     remote_out_dir = out_dir / "remote"
     config_path = resolve_config_path(args.config, suite)

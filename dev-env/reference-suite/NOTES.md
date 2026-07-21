@@ -1,8 +1,8 @@
 # `dev-local` reference suite
 
 Synthetic, git-tracked test plan used only for local development (see
-README.md "Local development environment"). Copied into `inputs/dev-local/`
-by `dev-env/suite.sh sync` -- **never edit `inputs/dev-local/` directly**,
+README.md "Local development environment"). Copied into `suites/dev-local/`
+by `dev-env/suite.sh sync` -- **never edit `suites/dev-local/` directly**,
 it's regenerated from here (and gitignored, like every other suite's CSVs).
 
 ## Placeholder tokens
@@ -47,7 +47,7 @@ always reported as `SKIPPED_MANUAL_TEST_REQUIRED` by `generate_report.py`,
 same as in production). Their real purpose here is exercising
 `src/generate_server_manifests.py` + `kubectl apply` against the MetalLB
 pool: after `uv run src/generate_server_manifests.py --suite dev-local` and
-applying `outputs/dev-local/manifests/servers/local/*-k8s.yaml`, both
+applying `suites/dev-local/outputs/manifests/servers/local/*-k8s.yaml`, both
 Services should get an `EXTERNAL-IP` from the pool (`<prefix>.200` /
 `<prefix>.201`), not stay `<pending>`.
 

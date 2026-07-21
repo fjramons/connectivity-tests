@@ -94,7 +94,7 @@ meant to be paired with):
 ```bash
 uv run src/generate_test_spec.py --suite dev-local
 uv run src/generate_server_manifests.py --suite dev-local
-kubectl apply -f outputs/dev-local/manifests/servers/local/<file>-k8s.yaml -n default
+kubectl apply -f suites/dev-local/outputs/manifests/servers/local/<file>-k8s.yaml -n default
 kubectl get svc -n default   # EXTERNAL-IP should be <prefix>.200 or .201, not <pending>
 ```
 

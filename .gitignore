@@ -3,36 +3,33 @@
 __pycache__/
 *.py[cod]
 
-# Generated artifacts, one subtree per suite: server K8s manifests, the
-# standalone jumphost script, and run logs. All reproducible/re-runnable
-# from src/ (uv run src/generate_test_spec.py, etc.), no need to version it.
-outputs/*
-!outputs/.gitkeep
-
-# Data with real network topology / IPs of Remote cloud domain and Local cloud domain: source CSVs,
-# generated spec, and everything derived from it. Reproducible with the scripts in
-# src/ (uv run src/generate_test_spec.py, etc.), no need to version it.
-# Listed as specific patterns (not a blanket inputs/<suite>/* wildcard) so that
-# inputs/<suite>/connectivity-tests.toml -- which holds no topology/IP data --
-# stays git-tracked: git can't re-include a file whose parent directory is
-# itself excluded by a wildcard match.
-inputs/*.csv
-inputs/*/*.csv
-inputs/connectivity-test-spec.*
-inputs/*/connectivity-test-spec.*
+# Generated artifacts, one subtree per suite: source CSVs, generated spec,
+# and everything under each suite's outputs/ (server K8s manifests, the
+# standalone jumphost script, and run logs). All reproducible/re-runnable
+# from src/ (uv run src/generate_test_spec.py, etc.), no need to version it --
+# they contain real internal IPs/topology of Remote cloud domain and Local
+# cloud domain.
+# Listed as specific patterns (not a blanket suites/<suite>/* wildcard) so
+# that suites/<suite>/connectivity-tests.toml -- which holds no topology/IP
+# data -- stays git-tracked: git can't re-include a file whose parent
+# directory is itself excluded by a wildcard match.
+suites/*/*.csv
+suites/*/connectivity-test-spec.*
+suites/*/outputs/*
+!suites/*/outputs/.gitkeep
 
 # Generic/default config: auto-created from the git-tracked
 # connectivity-tests.toml.template the first time any script needs it and
 # it's missing, so it doesn't need to be committed itself. The leading
-# slash anchors this to the repo root only -- inputs/<suite>/connectivity-tests.toml
+# slash anchors this to the repo root only -- suites/<suite>/connectivity-tests.toml
 # (per-suite overrides) are NOT matched by this and stay git-tracked.
 /connectivity-tests.toml
 
 # dev-local suite's connectivity-tests.toml is a copy of the git-tracked
 # dev-env/reference-suite/connectivity-tests.toml, re-derived by
 # `dev-env/suite.sh sync` every time -- unlike other suites' overrides, this
-# one must NOT also be tracked from inputs/, or the two copies could drift.
-inputs/dev-local/connectivity-tests.toml
+# one must NOT also be tracked from suites/, or the two copies could drift.
+suites/dev-local/connectivity-tests.toml
 
 # Local K8s cluster + VM emulation for development (see README.md "Local
 # development environment"): isolated kubeconfig and the discovered docker

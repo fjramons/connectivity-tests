@@ -2,7 +2,7 @@
 
 Tools to systematically validate connectivity and the firewall rules
 open between "Remote cloud domain" and "Local cloud domain",
-based on the rule matrix in `inputs/<suite>/*.csv`.
+based on the rule matrix in `suites/<suite>/*.csv`.
 
 Multiple independent **test suites** (e.g. different firewall matrix
 versions or environments) can coexist on disk, each in its own named
@@ -10,16 +10,16 @@ subfolder. Every command below takes a suite name via `--suite <name>`
 (or `src/run_via_kubectl.sh`'s equivalent flag), which can also be set
 once per shell session with `export TEST_SUITE=<name>` instead of
 repeating `--suite` on every command — the same value is used
-consistently everywhere (`inputs/<name>/`,
-`outputs/<name>/manifests/servers/{local,remote}/`,
-`outputs/<name>/standalone/`, `outputs/<name>/logs/`, and optionally
-`inputs/<name>/connectivity-tests.toml` if that suite needs its own config
-override). If neither `--suite` nor `TEST_SUITE` is given, the `default`
-suite (`inputs/default/`) is used automatically, with a printed notice —
-so a stray or forgotten `--suite` doesn't silently point at some other
-suite unnoticed. If the resolved suite's `inputs/<name>/` folder doesn't
-exist, every command fails fast with a clear error listing the suites
-that do exist. `ls inputs/` lists the suites that currently exist.
+consistently everywhere (`suites/<name>/`,
+`suites/<name>/outputs/manifests/servers/{local,remote}/`,
+`suites/<name>/outputs/standalone/`, `suites/<name>/outputs/logs/`, and
+optionally `suites/<name>/connectivity-tests.toml` if that suite needs its
+own config override). If neither `--suite` nor `TEST_SUITE` is given, the
+`default` suite (`suites/default/`) is used automatically, with a printed
+notice — so a stray or forgotten `--suite` doesn't silently point at some
+other suite unnoticed. If the resolved suite's `suites/<name>/` folder
+doesn't exist, every command fails fast with a clear error listing the
+suites that do exist. `ls suites/` lists the suites that currently exist.
 
 ## Quickstart
 
@@ -30,8 +30,8 @@ The whole flow is three steps:
 3. Build the report.
 
 If you want to **test in a real environment with your own firewall rule matrix**, just drop
-your two CSVs (`*Clients*.csv`/`*Servers*.csv`) into `inputs/default/`, or to
-`inputs/<suite>/` for a named suite (to draft your CSVs, you may want to use the
+your two CSVs (`*Clients*.csv`/`*Servers*.csv`) into `suites/default/`, or to
+`suites/<suite>/` for a named suite (to draft your CSVs, you may want to use the
 ready-made template at `dev-env/reference-suite/*.csv` for the expected columns).
 
 Then, run:
@@ -46,7 +46,7 @@ src/run_via_kubectl.sh
 
 # 3. Build and view the report
 uv run src/generate_report.py
-xdg-open outputs/default/logs/summary-report.html    # macOS: use `open`
+xdg-open suites/default/outputs/logs/summary-report.html    # macOS: use `open`
 ```
 
 No `--suite` flag needed above (defaults to the `default` suite; add
@@ -80,7 +80,7 @@ src/run_via_kubectl.sh --suite dev-local
 
 # 3. Build and view the report
 uv run src/generate_report.py --suite dev-local
-xdg-open outputs/dev-local/logs/summary-report.html    # macOS: use `open`
+xdg-open suites/dev-local/outputs/logs/summary-report.html    # macOS: use `open`
 
 # 4. Tear down the emulated environment
 dev-env/vm.sh down && dev-env/targets.sh down && dev-env/cluster.sh down
@@ -111,8 +111,8 @@ This project moves across three environments with very different capabilities:
 | **Lab PC** | Direct `kubectl` to the Local cloud domain clusters, and access to the jumphost (SSH) | Apply K8s manifests, run the automation against clusters, open a session to the jumphost |
 | **Jumphost / VM in Local cloud domain** | Direct access to Remote cloud domain, but transferring files is hard | Paste the self-contained script generated on the dev PC, or use Docker Compose manually |
 
-Artifacts generated on the dev PC (`inputs/<suite>/connectivity-test-spec.*`,
-`outputs/<suite>/manifests/servers/local/`, `outputs/<suite>/standalone/`) are
+Artifacts generated on the dev PC (`suites/<suite>/connectivity-test-spec.*`,
+`suites/<suite>/outputs/manifests/servers/local/`, `suites/<suite>/outputs/standalone/`) are
 moved to the lab PC manually via via not automatable means. From
 there:
 
@@ -122,7 +122,7 @@ there:
   jumphost and pasting the `standalone/` script there (self-contained: no
   `scp` required).
 
-`outputs/<suite>/manifests/servers/remote/` follows a different handoff:
+`suites/<suite>/outputs/manifests/servers/remote/` follows a different handoff:
 we have no deploy access to the Remote cloud domain cluster, so those
 manifests are instead sent directly to the team responsible
 for that cluster, not to the lab PC, in a process that is not automatable either.
@@ -169,29 +169,31 @@ Prerequisites in the other environments:
 ## Repository structure
 
 ```text
-inputs/<suite>/                          Source CSVs + generated spec (readable YAML + JSON for the runner)
-inputs/<suite>/connectivity-tests.toml   Optional per-suite config override (only needed if a suite's
+suites/<suite>/                          Everything for one suite, self-contained
+suites/<suite>/*.csv                     Source CSVs
+suites/<suite>/connectivity-test-spec.*  Generated spec (readable YAML + JSON for the runner)
+suites/<suite>/connectivity-tests.toml   Optional per-suite config override (only needed if a suite's
                                           namespace/pairing/probe calibration differs from the generic default)
 connectivity-tests.toml                  Generic/default config, used by any suite without its own override;
                                           gitignored -- auto-created from connectivity-tests.toml.template if missing
 connectivity-tests.toml.template         Git-tracked template for both of the above
 src/                                      Scripts (generators on the dev PC, stdlib-only runner)
 manifests/                                CLIENT (netshoot) manifests, suite-independent, always at the root
-outputs/<suite>/manifests/servers/local/  SERVER mocks for remote_cloud_domain_to_local_cloud_domain destinations
-                                           (deploy in Local cloud domain, via kubectl from the lab PC)
-outputs/<suite>/manifests/servers/remote/ SERVER mocks for local_cloud_domain_to_remote_cloud_domain destinations
-                                           (hand off to the Remote-cloud-domain team; they deploy them)
-outputs/<suite>/standalone/               Self-contained script(s) to paste into the jumphost/VM
-outputs/<suite>/logs/                     Run logs: one .log + structured .json per run, plus the
+suites/<suite>/outputs/manifests/servers/local/  SERVER mocks for remote_cloud_domain_to_local_cloud_domain destinations
+                                                  (deploy in Local cloud domain, via kubectl from the lab PC)
+suites/<suite>/outputs/manifests/servers/remote/ SERVER mocks for local_cloud_domain_to_remote_cloud_domain destinations
+                                                  (hand off to the Remote-cloud-domain team; they deploy them)
+suites/<suite>/outputs/standalone/        Self-contained script(s) to paste into the jumphost/VM
+suites/<suite>/outputs/logs/              Run logs: one .log + structured .json per run, plus the
                                            consolidated summary-report.{txt,html} (section 5)
 dev-env/                                  Local K8s cluster + VM emulation for development (see
                                            "Local development environment" below); dev-env/reference-suite/
-                                           is the git-tracked synthetic test plan synced into inputs/dev-local/
+                                           is the git-tracked synthetic test plan synced into suites/dev-local/
 ```
 
 ## 1. Generate the test specification
 
-From the two CSVs in `inputs/<suite>/` (put your CSVs there first — create
+From the two CSVs in `suites/<suite>/` (put your CSVs there first — create
 the folder if the suite is new):
 
 ```bash
@@ -201,15 +203,15 @@ export TEST_SUITE=cne2.0-v0.22
 uv run src/generate_test_spec.py
 ```
 
-This generates `inputs/<suite>/connectivity-test-spec.yaml` (readable, hand-editable) and its
-twin `inputs/<suite>/connectivity-test-spec.json` (the one the runner actually reads,
+This generates `suites/<suite>/connectivity-test-spec.yaml` (readable, hand-editable) and its
+twin `suites/<suite>/connectivity-test-spec.json` (the one the runner actually reads,
 with no dependency on PyYAML inside Local cloud domain).
 
 Each CSV expands into individual test cases (one IP × one port), including
 lists (`10.2.113.129, 10.2.113.131`) and ranges (`10.180.141.99-10.180.141.105`).
 When ports and protocols have the same number of elements in a row
 (e.g. 3 ports and 3 protocols), the pairing is controlled from
-`inputs/<suite>/connectivity-tests.toml` (`port_protocol_pairing`: `one_to_one` by default,
+`suites/<suite>/connectivity-tests.toml` (`port_protocol_pairing`: `one_to_one` by default,
 or `cross_product`); it can also be forced for a single run with
 `--port-protocol-pairing cross_product`.
 
@@ -218,12 +220,12 @@ The config file also has a `namespace` key (`"default"` unless set) that
 `kubectl apply -n <namespace>` command for the server manifests (see
 section 2) — it is not embedded into the generated YAML.
 
-Config resolution: `inputs/<suite>/connectivity-tests.toml` if that suite
+Config resolution: `suites/<suite>/connectivity-tests.toml` if that suite
 has its own override, else the generic `connectivity-tests.toml` at the
 repo root (auto-created from the git-tracked
 `connectivity-tests.toml.template` the first time any script needs it and
 it's missing). Most suites don't need their own override — only create
-`inputs/<suite>/connectivity-tests.toml` if that suite's namespace, port/
+`suites/<suite>/connectivity-tests.toml` if that suite's namespace, port/
 protocol pairing, or UDP probe calibration should differ from the generic
 default.
 
@@ -252,9 +254,9 @@ single command:
 uv run src/generate_server_manifests.py --suite cne2.0-v0.22
 ```
 
-This writes `outputs/cne2.0-v0.22/manifests/servers/local/<slug>-k8s.yaml`
+This writes `suites/cne2.0-v0.22/outputs/manifests/servers/local/<slug>-k8s.yaml`
 (one per unique `remote_cloud_domain_to_local_cloud_domain` destination) and
-`outputs/cne2.0-v0.22/manifests/servers/remote/<slug>-k8s.yaml` (one per
+`suites/cne2.0-v0.22/outputs/manifests/servers/remote/<slug>-k8s.yaml` (one per
 unique `local_cloud_domain_to_remote_cloud_domain` destination) in the same
 run — see 2.1 and 2.2 below for what to do with each.
 
@@ -285,7 +287,7 @@ not deployed yet, and we control the cluster they'll run on — deploy the
 generated mock directly:
 
 ```bash
-kubectl apply -f outputs/cne2.0-v0.22/manifests/servers/local/<slug>-k8s.yaml -n <namespace>
+kubectl apply -f suites/cne2.0-v0.22/outputs/manifests/servers/local/<slug>-k8s.yaml -n <namespace>
 ```
 
 `<namespace>` comes from the `namespace` key in the resolved config file
@@ -384,7 +386,7 @@ scripts. The script does a `kubectl cp` of `run_probe.py`, the spec, and
 the resolved config file (see "Config resolution" in section 1) to the pod, runs it with
 `kubectl exec ... run_probe.py batch ...`, and copies both the resulting
 log and its `.json` companion to
-`outputs/<suite>/logs/local-cloud-domain-to-remote-cloud-domain-k8s-<timestamp>.{log,json}`.
+`suites/<suite>/outputs/logs/local-cloud-domain-to-remote-cloud-domain-k8s-<timestamp>.{log,json}`.
 All from the lab PC, without going through the jumphost. Those copied files
 stay in the pod's `/tmp` afterward, ready for the ad hoc `list`/`tcp`/`udp`
 subcommands from section 4.2.
@@ -398,7 +400,7 @@ the spec subset with `source.type == "VM"`, and the resolved config file):
 uv run src/generate_standalone_script.py --suite cne2.0-v0.22
 ```
 
-This creates `outputs/cne2.0-v0.22/standalone/local-cloud-domain-to-remote-cloud-domain-vm-tests.sh`. Take it
+This creates `suites/cne2.0-v0.22/outputs/standalone/local-cloud-domain-to-remote-cloud-domain-vm-tests.sh`. Take it
 to the lab PC (OneDrive Web), open an SSH session to the jumphost/VM from there, and
 **paste the file's entire content** into the terminal (no `scp` needed: the
 script writes its own temp files locally and only needs
@@ -406,7 +408,7 @@ Docker installed). When the batch finishes, it prints the log delimited by
 `===== LOG START =====` / `===== LOG END =====`, followed by its `.json`
 companion delimited by `===== RESULTS_JSON START =====` / `===== RESULTS_JSON END =====`:
 copy both blocks and save them as
-`outputs/cne2.0-v0.22/logs/local-cloud-domain-to-remote-cloud-domain-vm-tests-<timestamp>.log`
+`suites/cne2.0-v0.22/outputs/logs/local-cloud-domain-to-remote-cloud-domain-vm-tests-<timestamp>.log`
 and the matching `...-<timestamp>.json`
 on the lab PC. It then drops you into an interactive shell with
 `run_probe.py` and the spec still present at `/data`, for the ad hoc
@@ -456,7 +458,7 @@ only to a log file.
 
   ```bash
   python3 run_probe.py tcp 10.180.141.111 443
-  python3 run_probe.py udp 10.45.66.48 1167 --config connectivity-tests.toml   # --config optional, calibrates the ICMP margin (inputs/<suite>/connectivity-tests.toml if that suite has its own override)
+  python3 run_probe.py udp 10.45.66.48 1167 --config connectivity-tests.toml   # --config optional, calibrates the ICMP margin (suites/<suite>/connectivity-tests.toml if that suite has its own override)
   ```
 
   `udp` does **not** require `ping`/ICMP to succeed: it always attempts the
@@ -487,7 +489,7 @@ simply that the Remote cloud domain service isn't deployed yet.
 ## 5. Consolidated summary & HTML report
 
 Once the logs from both backends (K8s and/or VM) for a suite are collected
-under `outputs/<suite>/logs/`, run, on the dev PC:
+under `suites/<suite>/outputs/logs/`, run, on the dev PC:
 
 ```bash
 uv run src/generate_report.py --suite cne2.0-v0.22
@@ -499,10 +501,10 @@ suite's spec, so every test case shows up exactly once even though the K8s
 and VM backends each only cover the subset of tests originating from their
 own `source.type`. It writes two views of the same data:
 
-- `outputs/<suite>/logs/summary-report.txt` — a plain-text table (id,
+- `suites/<suite>/outputs/logs/summary-report.txt` — a plain-text table (id,
   direction, name, verdict, comment, log pointer) for quick terminal/text
   viewing.
-- `outputs/<suite>/logs/summary-report.html` — a single self-contained
+- `suites/<suite>/outputs/logs/summary-report.html` — a single self-contained
   HTML file, color-coded by verdict severity, with each row expandable to
   show the full diagnostic detail (including the `COMMAND:` lines) without
   needing to open the raw `.log` separately.
@@ -552,11 +554,11 @@ dev-env/cluster.sh                      Local K8s cluster lifecycle (kind + Meta
 dev-env/vm.sh                           Local VM/jumphost lifecycle (emulated container): up/down/status
 dev-env/targets.sh                      Fake "Remote cloud domain" destination containers: up/down/status
 dev-env/run-vm-tests.sh                 Runs the VM-sourced tests against the emulated VM (docker cp/exec)
-dev-env/suite.sh                        Syncs dev-env/reference-suite/ -> inputs/dev-local/ (sync subcommand)
+dev-env/suite.sh                        Syncs dev-env/reference-suite/ -> suites/dev-local/ (sync subcommand)
 dev-env/env.sh                          `source` this to point your shell's kubectl at the local cluster
 dev-env/kind/                           kind cluster config + vendored MetalLB manifest + IPAddressPool template
 dev-env/compose/                        docker-compose file for the fake Remote-cloud-domain targets
-dev-env/reference-suite/                Git-tracked synthetic test plan (see below) -- synced into inputs/dev-local/
+dev-env/reference-suite/                Git-tracked synthetic test plan (see below) -- synced into suites/dev-local/
 ```
 
 ### Kubeconfig isolation
@@ -582,7 +584,7 @@ KUBECONFIG`) to go back to whatever you had configured before.
 ```bash
 dev-env/validate.sh run            # brings up cluster+targets+VM, syncs the suite, generates,
                                     # applies, runs both K8s- and VM-sourced tests, reports
-cat outputs/dev-local/logs/summary-report.txt
+cat suites/dev-local/outputs/logs/summary-report.txt
 
 # ...iterate on your change, re-run `dev-env/validate.sh run` as many times as needed...
 
@@ -602,18 +604,18 @@ dev-env/cluster.sh up              # kind cluster + MetalLB
 dev-env/cluster.sh deploy-client   # test client pod
 dev-env/targets.sh up              # fake Remote-cloud-domain target containers
 dev-env/vm.sh up                   # emulated VM/jumphost container
-dev-env/suite.sh sync              # copies dev-env/reference-suite/ -> inputs/dev-local/ with real local IPs
+dev-env/suite.sh sync              # copies dev-env/reference-suite/ -> suites/dev-local/ with real local IPs
 
 source dev-env/env.sh
 uv run src/generate_test_spec.py --suite dev-local
 uv run src/generate_server_manifests.py --suite dev-local
-kubectl apply -f outputs/dev-local/manifests/servers/local/ -n default
+kubectl apply -f suites/dev-local/outputs/manifests/servers/local/ -n default
 
 src/run_via_kubectl.sh --suite dev-local      # runs the K8s-Cluster-sourced cases
 dev-env/run-vm-tests.sh --suite dev-local     # runs the VM-sourced cases (or the real standalone script)
 
 uv run src/generate_report.py --suite dev-local
-cat outputs/dev-local/logs/summary-report.txt
+cat suites/dev-local/outputs/logs/summary-report.txt
 
 dev-env/vm.sh down
 dev-env/targets.sh down
@@ -636,7 +638,7 @@ exercise every automatable verdict plus the manual/skipped case, across
 both source types (`K8s Cluster` and `VM`) and both protocols. See
 `dev-env/reference-suite/NOTES.md` for exactly which row produces which
 verdict and how the placeholder tokens map to addresses on your machine.
-It's synced (never hand-edited in place) into `inputs/dev-local/` — edit
+It's synced (never hand-edited in place) into `suites/dev-local/` — edit
 `dev-env/reference-suite/` and re-run `dev-env/suite.sh sync` instead.
 
 ### Known limitations

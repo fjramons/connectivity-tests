@@ -44,12 +44,12 @@ useful standalone (e.g. against public IPs, per the existing
 
 ```bash
 docker cp src/run_probe.py conntest-dev-vm:/tmp/run_probe.py
-docker cp inputs/dev-local/connectivity-test-spec.json conntest-dev-vm:/tmp/spec.json
-docker cp inputs/dev-local/connectivity-tests.toml conntest-dev-vm:/tmp/connectivity-tests.toml
+docker cp suites/dev-local/connectivity-test-spec.json conntest-dev-vm:/tmp/spec.json
+docker cp suites/dev-local/connectivity-tests.toml conntest-dev-vm:/tmp/connectivity-tests.toml
 docker exec conntest-dev-vm python3 /tmp/run_probe.py batch --spec /tmp/spec.json \
   --filter-source-type VM --out /tmp/result.log --config /tmp/connectivity-tests.toml
-docker cp conntest-dev-vm:/tmp/result.log outputs/dev-local/logs/vm-emulated-$(date -u +%Y%m%dT%H%M%SZ).log
-docker cp conntest-dev-vm:/tmp/result.json outputs/dev-local/logs/vm-emulated-<same-timestamp>.json
+docker cp conntest-dev-vm:/tmp/result.log suites/dev-local/outputs/logs/vm-emulated-$(date -u +%Y%m%dT%H%M%SZ).log
+docker cp conntest-dev-vm:/tmp/result.json suites/dev-local/outputs/logs/vm-emulated-<same-timestamp>.json
 ```
 
 (`dev-env/vm.sh up` prints this same recipe with the current suite name
@@ -64,7 +64,7 @@ can run that exact artifact directly, with no wrapper needed:
 
 ```bash
 uv run src/generate_standalone_script.py --suite dev-local
-bash outputs/dev-local/standalone/local-cloud-domain-to-remote-cloud-domain-vm-tests.sh
+bash suites/dev-local/outputs/standalone/local-cloud-domain-to-remote-cloud-domain-vm-tests.sh
 ```
 
 This is the better choice when you specifically want to validate the

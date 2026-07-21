@@ -11,7 +11,7 @@
 #   dev-env/run-vm-tests.sh [--suite dev-local]
 #
 # The resulting log is copied to
-# outputs/<suite>/logs/local-cloud-domain-to-remote-cloud-domain-vm-emulated-<timestamp>.log
+# suites/<suite>/outputs/logs/local-cloud-domain-to-remote-cloud-domain-vm-emulated-<timestamp>.log
 # (plus the matching .json companion) -- "vm-emulated" distinguishes this
 # script's runs from a real jumphost's own log naming, while still merging
 # correctly into generate_report.py's per-test-id view.
@@ -42,7 +42,7 @@ if ! docker ps --format '{{.Names}}' | grep -qx "$VM_CONTAINER_NAME"; then
   exit 1
 fi
 
-SUITE_DIR="$ROOT_DIR/inputs/$SUITE"
+SUITE_DIR="$ROOT_DIR/suites/$SUITE"
 SPEC="$SUITE_DIR/connectivity-test-spec.json"
 if [[ ! -f "$SPEC" ]]; then
   log_err "$SPEC does not exist."
@@ -65,7 +65,7 @@ else
 fi
 
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-OUT_LOG="$ROOT_DIR/outputs/$SUITE/logs/local-cloud-domain-to-remote-cloud-domain-vm-emulated-${TIMESTAMP}.log"
+OUT_LOG="$SUITE_DIR/outputs/logs/local-cloud-domain-to-remote-cloud-domain-vm-emulated-${TIMESTAMP}.log"
 
 log_info "Using container $VM_CONTAINER_NAME..."
 docker cp "$ROOT_DIR/src/run_probe.py" "$VM_CONTAINER_NAME:/tmp/run_probe.py"
@@ -81,7 +81,7 @@ docker exec "$VM_CONTAINER_NAME" \
   python3 /tmp/run_probe.py batch --spec /tmp/spec.json --filter-source-type VM \
     --out /tmp/result.log "${CONFIG_ARGS[@]}"
 
-mkdir -p "$ROOT_DIR/outputs/$SUITE/logs"
+mkdir -p "$SUITE_DIR/outputs/logs"
 docker cp "$VM_CONTAINER_NAME:/tmp/result.log" "$OUT_LOG"
 OUT_RESULTS="${OUT_LOG%.log}.json"
 docker cp "$VM_CONTAINER_NAME:/tmp/result.json" "$OUT_RESULTS"

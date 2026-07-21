@@ -30,11 +30,11 @@ dev-env/validate.sh status [--suite dev-local]
 2. `--only k8s`/`both` only: deploys the test client
    (`dev-env/cluster.sh deploy-client`) -- a separate, explicit step from
    bringing the cluster up.
-3. Syncs `dev-env/reference-suite/` into `inputs/<suite>/`.
+3. Syncs `dev-env/reference-suite/` into `suites/<suite>/`.
 4. Regenerates the spec (`generate_test_spec.py`).
 5. `--only k8s`/`both` only: regenerates + applies the local server
    manifests (`generate_server_manifests.py` + `kubectl apply -f
-   outputs/<suite>/manifests/servers/local/`), proving the MetalLB
+   suites/<suite>/outputs/manifests/servers/local/`), proving the MetalLB
    LoadBalancer mechanism works -- these cases are never actually probed
    by `run_probe.py` (always `SKIPPED_MANUAL_TEST_REQUIRED`, same as prod).
 6. Runs the automated tests: `--only k8s`/`both` via
@@ -67,7 +67,7 @@ dev-env/validate.sh status [--suite dev-local]
 `down` tears down the VM, fake targets, and cluster in that order
 (mirrors `create-local-vm`/`create-local-k8s-cluster`'s own teardown).
 `status` shows the combined state of all three plus whether
-`inputs/<suite>/` looks synced.
+`suites/<suite>/` looks synced.
 
 ## When this skill isn't the right level
 

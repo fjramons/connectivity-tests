@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generates inputs/connectivity-test-spec.{yaml,json} from the CSVs in inputs/.
+"""Generates suites/<suite>/connectivity-test-spec.{yaml,json} from the CSVs in suites/<suite>/.
 
 Runs on the dev PC with `uv run src/generate_test_spec.py`.
 Requires PyYAML (declared in pyproject.toml, installed by `uv sync`).
@@ -325,8 +325,8 @@ def main() -> None:
     parser.add_argument(
         "--suite",
         default=None,
-        help="Suite name (subfolder under inputs/; config is read from "
-        "inputs/<suite>/connectivity-tests.toml if present). "
+        help="Suite name (subfolder under suites/; config is read from "
+        "suites/<suite>/connectivity-tests.toml if present). "
         "Falls back to the TEST_SUITE environment variable, and finally to "
         "the 'default' suite, if omitted.",
     )
@@ -350,7 +350,7 @@ def main() -> None:
     suite = resolve_suite(args.suite)
     if args.inputs_dir is None:
         check_suite_exists(suite)
-    inputs_dir = args.inputs_dir or ROOT / "inputs" / suite
+    inputs_dir = args.inputs_dir or ROOT / "suites" / suite
     yaml_out = args.yaml_out or inputs_dir / "connectivity-test-spec.yaml"
     json_out = args.json_out or inputs_dir / "connectivity-test-spec.json"
 

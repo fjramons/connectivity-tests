@@ -10,7 +10,7 @@
 #   run_probe.py runs directly inside it, no nested `docker run --network host`
 #   needed.
 #
-#   "real": run the actual outputs/<suite>/standalone/*.sh generated script
+#   "real": run the actual suites/<suite>/outputs/standalone/*.sh generated script
 #   directly on this same laptop -- it already only needs Docker
 #   (`docker run --network host ...`), so the laptop itself already acts as
 #   the jumphost for that artifact. See the skill for the caveat about
@@ -61,10 +61,10 @@ cmd_up() {
   docker exec "$VM_CONTAINER_NAME" python3 --version >&2 || true
   log_info "Example manual run (mirrors src/run_via_kubectl.sh's kubectl cp/exec, via docker instead):"
   echo "  docker cp src/run_probe.py $VM_CONTAINER_NAME:/tmp/run_probe.py" >&2
-  echo "  docker cp inputs/dev-local/connectivity-test-spec.json $VM_CONTAINER_NAME:/tmp/spec.json" >&2
+  echo "  docker cp suites/dev-local/connectivity-test-spec.json $VM_CONTAINER_NAME:/tmp/spec.json" >&2
   echo "  docker exec $VM_CONTAINER_NAME python3 /tmp/run_probe.py batch --spec /tmp/spec.json \\" >&2
   echo "    --filter-source-type VM --out /tmp/result.log" >&2
-  echo "  docker cp $VM_CONTAINER_NAME:/tmp/result.log outputs/dev-local/logs/vm-emulated-\$(date -u +%Y%m%dT%H%M%SZ).log" >&2
+  echo "  docker cp $VM_CONTAINER_NAME:/tmp/result.log suites/dev-local/outputs/logs/vm-emulated-\$(date -u +%Y%m%dT%H%M%SZ).log" >&2
 }
 
 cmd_down() {

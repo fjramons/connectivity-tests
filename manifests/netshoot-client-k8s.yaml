@@ -12,9 +12,9 @@
 #
 # Automated usage (see src/run_via_kubectl.sh):
 #   kubectl cp src/run_probe.py deploy/netshoot-client:/tmp/run_probe.py
-#   kubectl cp inputs/connectivity-test-spec.json deploy/netshoot-client:/tmp/spec.json
+#   kubectl cp suites/<suite>/connectivity-test-spec.json deploy/netshoot-client:/tmp/spec.json
 #   kubectl exec deploy/netshoot-client -- python3 /tmp/run_probe.py --spec /tmp/spec.json --out /tmp/result.log
-#   kubectl cp deploy/netshoot-client:/tmp/result.log outputs/result.log
+#   kubectl cp deploy/netshoot-client:/tmp/result.log suites/<suite>/outputs/result.log
 apiVersion: apps/v1
 kind: Deployment
 metadata:

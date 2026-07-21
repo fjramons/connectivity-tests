@@ -1,11 +1,11 @@
 ---
 name: generate-connectivity-spec
-description: Regenerates the Remote cloud domain <-> Local cloud domain connectivity test specification from the CSVs in inputs/<suite>/, and the derived manifests/scripts. Use when the CSVs in inputs/<suite>/ change or the spec YAML has been edited by hand.
+description: Regenerates the Remote cloud domain <-> Local cloud domain connectivity test specification from the CSVs in suites/<suite>/, and the derived manifests/scripts. Use when the CSVs in suites/<suite>/ change or the spec YAML has been edited by hand.
 ---
 # Regenerate the connectivity test specification
 
 This project validates connectivity between Remote cloud domain and Local
-cloud domain from two CSVs in `inputs/<suite>/` (`... Clients.csv` and `... Servers.csv`).
+cloud domain from two CSVs in `suites/<suite>/` (`... Clients.csv` and `... Servers.csv`).
 The whole regeneration flow runs on the dev PC with `uv`
 (`uv sync` once, to have PyYAML available).
 
@@ -13,20 +13,20 @@ The whole regeneration flow runs on the dev PC with `uv`
 
 Every command below uses a suite, via `--suite <name>` or by exporting
 `TEST_SUITE=<name>` once per shell session (the flag wins if both are set);
-if neither is given, the `default` suite (`inputs/default/`) is used
+if neither is given, the `default` suite (`suites/default/`) is used
 automatically, with a printed notice. The same suite name resolves every
-path consistently: `inputs/<name>/`,
-`outputs/<name>/manifests/servers/{local,remote}/`,
-`outputs/<name>/standalone/`, and optionally
-`inputs/<name>/connectivity-tests.toml` if that suite needs a config
+path consistently: `suites/<name>/`,
+`suites/<name>/outputs/manifests/servers/{local,remote}/`,
+`suites/<name>/outputs/standalone/`, and optionally
+`suites/<name>/connectivity-tests.toml` if that suite needs a config
 override (most suites don't — they use the generic
-`connectivity-tests.toml` at the repo root). `ls inputs/` lists the
+`connectivity-tests.toml` at the repo root). `ls suites/` lists the
 suites that currently exist on disk.
 
 ## When to use this skill
 
-- The CSVs in `inputs/<suite>/` have changed (new version of the firewall matrix).
-- `inputs/<suite>/connectivity-test-spec.yaml` has been edited by hand (for example, to
+- The CSVs in `suites/<suite>/` have changed (new version of the firewall matrix).
+- `suites/<suite>/connectivity-test-spec.yaml` has been edited by hand (for example, to
   fix an `unresolved` entry) and the JSON needs to be resynced.
 - The `remote_cloud_domain_to_local_cloud_domain` destinations have changed and
   the server manifests or the self-contained script for the jumphost need to
@@ -66,10 +66,10 @@ suites that currently exist on disk.
    uv run src/generate_standalone_script.py --suite <name>
    ```
 
-5. Remember that these artifacts (`inputs/<name>/connectivity-test-spec.*`,
-   `outputs/<name>/manifests/servers/local/`, `outputs/<name>/standalone/`)
+5. Remember that these artifacts (`suites/<name>/connectivity-test-spec.*`,
+   `suites/<name>/outputs/manifests/servers/local/`, `suites/<name>/outputs/standalone/`)
    must be moved manually to the lab PC via OneDrive Web — there's no
-   automated way to do it from here. `outputs/<name>/manifests/servers/remote/`
+   automated way to do it from here. `suites/<name>/outputs/manifests/servers/remote/`
    follows a different path: it's handed off directly to the Remote-cloud-
    domain team (not to the lab PC), since we have no deploy access to that
    cluster.

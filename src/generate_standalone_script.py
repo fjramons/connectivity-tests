@@ -11,7 +11,7 @@ The generated script:
   3. Runs the tests with `docker run --network host nicolaka/netshoot:v0.15`.
   4. Dumps the resulting log and its structured JSON companion to stdout
      (`cat`) so the operator can copy both outputs and save them in
-     outputs/ on the lab PC (same basename, `.log` and `.json`).
+     suites/<suite>/outputs/logs/ on the lab PC (same basename, `.log` and `.json`).
   5. Drops the operator into an interactive `docker run -it` shell with
      run_probe.py + spec.json still present at /data, to run ad hoc
      `list`/`tcp`/`udp` subcommands (see README.md section 4.2) before the
@@ -74,12 +74,12 @@ docker run --rm --network host -v "$WORKDIR:/data" nicolaka/netshoot:v0.15 \\
   python3 /data/run_probe.py batch --spec /data/spec.json --config /data/connectivity-tests.toml --out /data/result.log
 
 echo "" >&2
-echo "===== LOG START (copy from here to the END marker into outputs/ on the lab PC) =====" >&2
+echo "===== LOG START (copy from here to the END marker into {outputs_dir_display}/ on the lab PC) =====" >&2
 cat "$WORKDIR/result.log"
 echo "===== LOG END =====" >&2
 
 echo "" >&2
-echo "===== RESULTS_JSON START (save as the matching outputs/<suite>/logs/<same-basename>.json) =====" >&2
+echo "===== RESULTS_JSON START (save as the matching {outputs_dir_display}/<same-basename>.json) =====" >&2
 cat "$WORKDIR/result.json"
 echo "===== RESULTS_JSON END =====" >&2
 
@@ -119,8 +119,8 @@ def main() -> None:
     parser.add_argument(
         "--suite",
         default=None,
-        help="Suite name (subfolder under inputs//outputs/; config is read from "
-        "inputs/<suite>/connectivity-tests.toml if present). Falls back to the "
+        help="Suite name (subfolder under suites/; config is read from "
+        "suites/<suite>/connectivity-tests.toml if present). Falls back to the "
         "TEST_SUITE environment variable, and finally to the 'default' suite, if omitted.",
     )
     parser.add_argument("--spec", type=Path, default=None)
@@ -133,10 +133,10 @@ def main() -> None:
     suite = resolve_suite(args.suite)
     if args.spec is None:
         check_suite_exists(suite)
-    spec = args.spec or ROOT / "inputs" / suite / "connectivity-test-spec.json"
+    spec = args.spec or ROOT / "suites" / suite / "connectivity-test-spec.json"
     probe_config_path = resolve_config_path(args.probe_config, suite)
-    out = args.out or ROOT / "outputs" / suite / "standalone" / "local-cloud-domain-to-remote-cloud-domain-vm-tests.sh"
-    outputs_dir_display = f"outputs/{suite}/logs"
+    out = args.out or ROOT / "suites" / suite / "outputs" / "standalone" / "local-cloud-domain-to-remote-cloud-domain-vm-tests.sh"
+    outputs_dir_display = f"suites/{suite}/outputs/logs"
 
     probe_source = args.probe.read_text(encoding="utf-8")
     probe_config = probe_config_path.read_text(encoding="utf-8") if probe_config_path.exists() else ""

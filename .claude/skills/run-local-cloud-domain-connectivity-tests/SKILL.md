@@ -1,6 +1,6 @@
 ---
 name: run-local-cloud-domain-connectivity-tests
-description: Guide for running the automated Local cloud domain -> Remote cloud domain connectivity tests, choosing the right backend (K8s from the lab PC, or VM/jumphost with the self-contained script), and consolidating/viewing results (text table + HTML report) in outputs/.
+description: Guide for running the automated Local cloud domain -> Remote cloud domain connectivity tests, choosing the right backend (K8s from the lab PC, or VM/jumphost with the self-contained script), and consolidating/viewing results (text table + HTML report) in suites/<suite>/outputs/.
 ---
 # Run the Local cloud domain → Remote cloud domain connectivity tests
 
@@ -13,20 +13,20 @@ with Remote cloud domain — see section 2 of `README.md`.
 ## Suites
 
 Every test suite (e.g. a firewall matrix version) lives in its own named
-subfolder: `inputs/<suite>/connectivity-test-spec.json`,
-`outputs/<suite>/manifests/servers/`, `outputs/<suite>/standalone/`,
-`outputs/<suite>/logs/`, and optionally `inputs/<suite>/connectivity-tests.toml`
+subfolder: `suites/<suite>/connectivity-test-spec.json`,
+`suites/<suite>/outputs/manifests/servers/`, `suites/<suite>/outputs/standalone/`,
+`suites/<suite>/outputs/logs/`, and optionally `suites/<suite>/connectivity-tests.toml`
 if that suite needs a config override (most don't — they use the generic
 `connectivity-tests.toml` at the repo root). Commands below use a suite,
 via `--suite <name>` (or the equivalent flag on `run_via_kubectl.sh`) or
 by exporting `TEST_SUITE=<name>` once per shell session; if neither is
-given, the `default` suite (`inputs/default/`) is used automatically, with
-a printed notice. `ls inputs/` lists the suites that currently exist on
+given, the `default` suite (`suites/default/`) is used automatically, with
+a printed notice. `ls suites/` lists the suites that currently exist on
 disk.
 
 ## Choosing the backend based on `source.type`
 
-Each test case in `inputs/<suite>/connectivity-test-spec.json` has a
+Each test case in `suites/<suite>/connectivity-test-spec.json` has a
 `source.type`: `"K8s Cluster"` or `"VM"`. The backend to use depends on that:
 
 - **`source.type == "K8s Cluster"`** → K8s backend, run **from the lab
@@ -36,21 +36,21 @@ Each test case in `inputs/<suite>/connectivity-test-spec.json` has a
   src/run_via_kubectl.sh --suite <name> [--namespace <ns>] [--deployment <name>]
   ```
   The log, plus its structured `.json` companion, end up automatically at
-  `outputs/<suite>/logs/local-cloud-domain-to-remote-cloud-domain-k8s-<timestamp>.{log,json}`.
+  `suites/<suite>/outputs/logs/local-cloud-domain-to-remote-cloud-domain-k8s-<timestamp>.{log,json}`.
 
 - **`source.type == "VM"`** → VM/jumphost backend. On the dev PC, generate
   the self-contained script (if it isn't already generated or the spec changed):
   ```bash
   uv run src/generate_standalone_script.py --suite <name>
   ```
-  Take `outputs/<name>/standalone/local-cloud-domain-to-remote-cloud-domain-vm-tests.sh` to the lab PC (OneDrive
+  Take `suites/<name>/outputs/standalone/local-cloud-domain-to-remote-cloud-domain-vm-tests.sh` to the lab PC (OneDrive
   Web), open a session to the jumphost/VM from there, and **paste the file's
   entire content** into the terminal (no file transfer needed: the script
   writes its own temp files locally and only needs Docker). Copy the
   log block delimited by `===== LOG START =====` / `===== LOG END =====`,
   and its `.json` companion delimited by `===== RESULTS_JSON START =====` /
   `===== RESULTS_JSON END =====`, into two new files with the same basename
-  in `outputs/<name>/logs/` on the lab PC. It then drops you into an
+  in `suites/<name>/outputs/logs/` on the lab PC. It then drops you into an
   interactive shell with `run_probe.py` + the spec already at `/data` —
   see "Ad hoc single-case tests" below.
 
@@ -122,7 +122,7 @@ applies.
 ## Consolidating & viewing results
 
 Once you've collected the logs from both backends (K8s and/or VM) for a
-suite under `outputs/<suite>/logs/`, run, on the dev PC:
+suite under `suites/<suite>/outputs/logs/`, run, on the dev PC:
 
 ```bash
 uv run src/generate_report.py --suite <name>
@@ -130,7 +130,7 @@ uv run src/generate_report.py --suite <name>
 
 This merges every `.json` companion under that folder (latest run wins per
 test id) against the suite's spec and writes
-`outputs/<suite>/logs/summary-report.txt` (a plain-text table: id,
+`suites/<suite>/outputs/logs/summary-report.txt` (a plain-text table: id,
 direction, name, verdict, comment, log pointer) and
 `summary-report.html` (the same table, color-coded by verdict severity,
 with each row expandable to the full diagnostic detail — open it in a

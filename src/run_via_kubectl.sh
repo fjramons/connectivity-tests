@@ -10,7 +10,7 @@
 #
 # --suite falls back to the TEST_SUITE environment variable, and finally to
 # the "default" suite, if neither is given.
-# The resulting log is copied to outputs/<suite>/logs/local-cloud-domain-to-remote-cloud-domain-k8s-<timestamp>.log
+# The resulting log is copied to suites/<suite>/outputs/logs/local-cloud-domain-to-remote-cloud-domain-k8s-<timestamp>.log
 # (plus a matching <timestamp>.json companion with structured per-test
 # results, consumed by `uv run src/generate_report.py --suite <suite>`)
 set -euo pipefail
@@ -45,21 +45,21 @@ if [[ ! "$SUITE" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
 fi
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SUITE_DIR="$ROOT_DIR/inputs/$SUITE"
+SUITE_DIR="$ROOT_DIR/suites/$SUITE"
 if [[ ! -d "$SUITE_DIR" ]]; then
-  EXISTING="$(find "$ROOT_DIR/inputs" -mindepth 1 -maxdepth 1 -type d ! -name '.*' -printf '%f\n' | sort | paste -sd ', ' -)"
+  EXISTING="$(find "$ROOT_DIR/suites" -mindepth 1 -maxdepth 1 -type d ! -name '.*' -printf '%f\n' | sort | paste -sd ', ' -)"
   echo "❌ Suite '$SUITE' not found: $SUITE_DIR does not exist." >&2
   echo "   Existing suites: ${EXISTING:-(none yet)}" >&2
   echo "   Create $SUITE_DIR/ with your CSVs, or pick an existing suite with" >&2
   echo "   --suite <name> / export TEST_SUITE=<name>." >&2
   exit 1
 fi
-SPEC="$ROOT_DIR/inputs/$SUITE/connectivity-test-spec.json"
+SPEC="$ROOT_DIR/suites/$SUITE/connectivity-test-spec.json"
 PROBE="$ROOT_DIR/src/run_probe.py"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-OUT_LOG="$ROOT_DIR/outputs/$SUITE/logs/local-cloud-domain-to-remote-cloud-domain-k8s-${TIMESTAMP}.log"
+OUT_LOG="$ROOT_DIR/suites/$SUITE/outputs/logs/local-cloud-domain-to-remote-cloud-domain-k8s-${TIMESTAMP}.log"
 
-SUITE_CONFIG="$ROOT_DIR/inputs/$SUITE/connectivity-tests.toml"
+SUITE_CONFIG="$ROOT_DIR/suites/$SUITE/connectivity-tests.toml"
 GENERIC_CONFIG="$ROOT_DIR/connectivity-tests.toml"
 CONFIG_TEMPLATE="$ROOT_DIR/connectivity-tests.toml.template"
 if [[ -f "$SUITE_CONFIG" ]]; then
@@ -100,7 +100,7 @@ kubectl -n "$NAMESPACE" exec "$POD" -- \
   python3 /tmp/run_probe.py batch --spec /tmp/spec.json --filter-source-type "K8s Cluster" \
     --out /tmp/result.log "${CONFIG_ARGS[@]}"
 
-mkdir -p "$ROOT_DIR/outputs/$SUITE/logs"
+mkdir -p "$ROOT_DIR/suites/$SUITE/outputs/logs"
 kubectl -n "$NAMESPACE" cp "$POD:/tmp/result.log" "$OUT_LOG"
 OUT_RESULTS="${OUT_LOG%.log}.json"
 kubectl -n "$NAMESPACE" cp "$POD:/tmp/result.json" "$OUT_RESULTS"

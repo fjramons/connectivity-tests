@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Copies the synthetic reference test plan (dev-env/reference-suite/, git-
-# tracked) into inputs/<suite>/ (gitignored, like every suite's CSVs),
+# tracked) into suites/<suite>/ (gitignored, like every suite's CSVs),
 # substituting the placeholder IP tokens for the addresses actually in use
 # on this machine (see dev-env/reference-suite/NOTES.md). Requires
 # dev-env/cluster.sh up to have run first (that's what records the subnet
 # prefix this substitution needs).
 #
-# inputs/<suite>/ is ALWAYS derived from dev-env/reference-suite/ -- edit
-# the CSVs there and re-run sync, never edit inputs/<suite>/ directly (it's
+# suites/<suite>/ is ALWAYS derived from dev-env/reference-suite/ -- edit
+# the CSVs there and re-run sync, never edit suites/<suite>/ directly (it's
 # overwritten every time).
 #
 # Usage:
@@ -24,7 +24,7 @@ cmd_sync() {
   local suite="$1"
   local prefix
   prefix="$(read_subnet_prefix)"
-  local target_dir="$ROOT_DIR/inputs/$suite"
+  local target_dir="$ROOT_DIR/suites/$suite"
   mkdir -p "$target_dir"
 
   log_info "Syncing $REFERENCE_DIR/ -> $target_dir/ (prefix ${prefix}.0/24)..."

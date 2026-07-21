@@ -60,7 +60,7 @@ cmd_run() {
   if [[ "$ONLY" != "vm" ]]; then
     log_info "=== Generating and applying server manifests (namespace $DEV_ENV_NAMESPACE) ==="
     (cd "$ROOT_DIR" && uv run src/generate_server_manifests.py --suite "$SUITE")
-    kubectl apply -n "$DEV_ENV_NAMESPACE" -f "$ROOT_DIR/outputs/$SUITE/manifests/servers/local/"
+    kubectl apply -n "$DEV_ENV_NAMESPACE" -f "$ROOT_DIR/suites/$SUITE/outputs/manifests/servers/local/"
   fi
 
   if [[ "$ONLY" != "vm" ]]; then
@@ -77,7 +77,7 @@ cmd_run() {
   (cd "$ROOT_DIR" && uv run src/generate_report.py --suite "$SUITE")
 
   log_ok "Validation run complete for suite '$SUITE'."
-  echo "   Report: outputs/$SUITE/logs/summary-report.txt (and .html)" >&2
+  echo "   Report: suites/$SUITE/outputs/logs/summary-report.txt (and .html)" >&2
   echo >&2
   log_info "Infra is still running (by design, for continued iteration)."
   log_info "When the development being validated is done, tear it down with:"
@@ -101,10 +101,10 @@ cmd_status() {
   echo "=== Emulated VM ===" >&2
   "$DEV_ENV_DIR/vm.sh" status
   echo "=== Suite '$SUITE' ===" >&2
-  if [[ -d "$ROOT_DIR/inputs/$SUITE" ]]; then
-    log_info "inputs/$SUITE/ exists. Re-run 'dev-env/suite.sh sync --suite $SUITE' if dev-env/reference-suite/ changed since."
+  if [[ -d "$ROOT_DIR/suites/$SUITE" ]]; then
+    log_info "suites/$SUITE/ exists. Re-run 'dev-env/suite.sh sync --suite $SUITE' if dev-env/reference-suite/ changed since."
   else
-    log_info "inputs/$SUITE/ has not been synced yet (dev-env/suite.sh sync --suite $SUITE)."
+    log_info "suites/$SUITE/ has not been synced yet (dev-env/suite.sh sync --suite $SUITE)."
   fi
 }
 

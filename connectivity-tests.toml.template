@@ -10,7 +10,7 @@
 port_protocol_pairing = "one_to_one"
 
 # Kubernetes namespace where the generated server test manifests
-# (outputs/<suite>/manifests/servers/*.yaml) are meant to be deployed. NOT
+# (suites/<suite>/outputs/manifests/servers/*.yaml) are meant to be deployed. NOT
 # embedded into the manifests themselves -- deploy explicitly with
 # `kubectl apply -f <file> -n <namespace>` for clarity. This value is only
 # used by src/generate_server_manifests.py to print/document the suggested

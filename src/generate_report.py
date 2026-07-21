@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Consolidates the per-run companion JSON files under outputs/<suite>/logs/
+"""Consolidates the per-run companion JSON files under suites/<suite>/outputs/logs/
 (written by `run_probe.py batch` alongside each .log, one per K8s/VM run) into
 a single per-suite summary: which test got which verdict, a short comment for
 weak/inconclusive verdicts, and a pointer to the raw .log for full detail.
 
 Produces two views of the same data:
-  outputs/<suite>/logs/summary-report.txt   -- plain-text table
-  outputs/<suite>/logs/summary-report.html  -- self-contained HTML, color-coded
+  suites/<suite>/outputs/logs/summary-report.txt   -- plain-text table
+  suites/<suite>/outputs/logs/summary-report.html  -- self-contained HTML, color-coded
     by verdict severity, with expandable per-row detail (full diagnostic text
     + exact commands used), so the raw .log doesn't need to be opened separately.
 
@@ -46,7 +46,7 @@ VERDICT_SEVERITY = {
 
 
 def discover_result_files(suite: str) -> list[Path]:
-    logs_dir = ROOT / "outputs" / suite / "logs"
+    logs_dir = ROOT / "suites" / suite / "outputs" / "logs"
     return sorted(logs_dir.glob("*.json")) if logs_dir.is_dir() else []
 
 
@@ -113,7 +113,7 @@ def classify_test(spec_test: dict, merged: dict[str, dict]) -> dict:
         "name": destination_name(spec_test),
         "verdict": NOT_RUN_YET,
         "verdict_icon": NOT_RUN_ICON,
-        "comment": "no result found under outputs/<suite>/logs/ for this test id",
+        "comment": "no result found under suites/<suite>/outputs/logs/ for this test id",
         "log_pointer": "-",
         "detail": "",
         "commands": [],
@@ -262,7 +262,7 @@ def main() -> None:
     parser.add_argument(
         "--suite",
         default=None,
-        help="Suite name (subfolder under inputs//outputs/). Falls back to the "
+        help="Suite name (subfolder under suites/). Falls back to the "
         "TEST_SUITE environment variable, and finally to the 'default' suite, if omitted.",
     )
     parser.add_argument("--spec", type=Path, default=None)
@@ -271,7 +271,7 @@ def main() -> None:
     suite = resolve_suite(args.suite)
     if args.spec is None:
         check_suite_exists(suite)
-    spec_path = args.spec or ROOT / "inputs" / suite / "connectivity-test-spec.json"
+    spec_path = args.spec or ROOT / "suites" / suite / "connectivity-test-spec.json"
     if not spec_path.exists():
         raise SystemExit(
             f"❌ Spec not found: {spec_path}\n"
@@ -284,7 +284,7 @@ def main() -> None:
     merged = merge_results(result_files)
     rows = build_rows(spec, merged)
 
-    logs_dir = ROOT / "outputs" / suite / "logs"
+    logs_dir = ROOT / "suites" / suite / "outputs" / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     text_path = logs_dir / "summary-report.txt"
     html_path = logs_dir / "summary-report.html"
